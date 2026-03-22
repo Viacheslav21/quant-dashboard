@@ -184,6 +184,84 @@ class Database:
             "ev_actual": float(ev_accuracy["avg_actual_return"] or 0) if ev_accuracy else 0,
         }
 
+    # ── Arbitrage tables (read-only) ──
+
+    async def get_arb_stats(self) -> dict:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM arb_stats WHERE id=1")
+            return dict(row) if row else {"bankroll": 0, "total_pnl": 0, "total_bets": 0, "wins": 0, "losses": 0}
+
+    async def get_arb_open_positions(self) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM arb_positions WHERE status='open' ORDER BY opened_at DESC")
+            return [dict(r) for r in rows]
+
+    async def get_arb_closed_positions(self, limit: int = 100) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM arb_positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1", limit)
+            return [dict(r) for r in rows]
+
+    async def get_arb_signals(self, limit: int = 50) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM arb_signals ORDER BY created_at DESC LIMIT $1", limit)
+            return [dict(r) for r in rows]
+
+    async def get_arb_cumulative_pnl(self) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT closed_at, pnl,
+                    SUM(pnl) OVER (ORDER BY closed_at) as cumulative
+                FROM arb_positions
+                WHERE status='closed' AND closed_at IS NOT NULL
+                ORDER BY closed_at ASC
+            """)
+            return [{"t": r["closed_at"].isoformat(), "pnl": float(r["pnl"]), "cum": float(r["cumulative"])} for r in rows]
+
+    async def get_arb_analytics(self) -> dict:
+        async with self.pool.acquire() as conn:
+            by_group = await conn.fetch("""
+                SELECT group_name, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                FROM arb_positions WHERE status='closed' AND group_name IS NOT NULL
+                GROUP BY group_name ORDER BY total DESC
+            """)
+            by_reason = await conn.fetch("""
+                SELECT close_reason as reason, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM arb_positions WHERE status='closed' AND close_reason IS NOT NULL
+                GROUP BY close_reason ORDER BY total DESC
+            """)
+            by_side = await conn.fetch("""
+                SELECT side, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM arb_positions WHERE status='closed'
+                GROUP BY side
+            """)
+            avg_lifetime = await conn.fetchrow("""
+                SELECT ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - opened_at)) / 60)::numeric, 1) as avg_min
+                FROM arb_positions WHERE status='closed' AND closed_at IS NOT NULL
+            """)
+            daily_pnl = await conn.fetch("""
+                SELECT DATE(closed_at) as day,
+                    ROUND(SUM(pnl)::numeric, 2) as pnl,
+                    COUNT(*) as trades,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins
+                FROM arb_positions WHERE status='closed' AND closed_at IS NOT NULL
+                GROUP BY day ORDER BY day DESC LIMIT 14
+            """)
+        return {
+            "by_group": [dict(r) for r in by_group],
+            "by_reason": [dict(r) for r in by_reason],
+            "by_side": [dict(r) for r in by_side],
+            "avg_lifetime_min": float(avg_lifetime["avg_min"] or 0) if avg_lifetime else 0,
+            "daily_pnl": [dict(r) for r in daily_pnl],
+        }
+
     async def close(self):
         if self.pool:
             await self.pool.close()

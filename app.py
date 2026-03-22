@@ -279,6 +279,7 @@ a.link-arrow:hover{{color:#3B82F6}}
   </div>
   <div class="header-right">
     <a href="/analytics" style="color:#6B7280;text-decoration:none;margin-right:16px">Analytics</a>
+    <a href="/arbitrage" style="color:#6B7280;text-decoration:none;margin-right:16px">Arbitrage</a>
     {datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M UTC')}
   </div>
 </div>
@@ -581,7 +582,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 
 <div class="header">
   <h1>Analytics</h1>
-  <a href="/">&larr; Dashboard</a>
+  <div><a href="/" style="color:#6B7280;text-decoration:none;margin-right:16px">&larr; Dashboard</a><a href="/arbitrage" style="color:#6B7280;text-decoration:none">Arbitrage</a></div>
 </div>
 
 <div class="grid">
@@ -840,6 +841,285 @@ async function runSonnetAnalysis() {{
   except Exception as e:
     log.error(f"[DASHBOARD] Analytics error: {e}", exc_info=True)
     return HTMLResponse(f"<h1>Analytics Error</h1><pre>{e}</pre>", status_code=500)
+
+@app.get("/arbitrage", response_class=HTMLResponse)
+async def arbitrage(page: int = 1):
+  try:
+    per_page = 100
+    stats = await _db.get_arb_stats()
+    open_ = await _db.get_arb_open_positions()
+    all_closed = await _db.get_arb_closed_positions(limit=per_page * page)
+    closed = all_closed[(page-1)*per_page : page*per_page]
+    total_closed = stats["wins"] + stats["losses"]
+    total_pages = max(1, (total_closed + per_page - 1) // per_page)
+    signals = await _db.get_arb_signals(limit=20)
+    pnl_data = await _db.get_arb_cumulative_pnl()
+    data = await _db.get_arb_analytics()
+
+    arb_bankroll = float(os.getenv("BANKROLL", "1000"))
+    roi = ((stats["bankroll"] - arb_bankroll) / arb_bankroll * 100) if arb_bankroll > 0 else 0
+    total = stats["wins"] + stats["losses"]
+    wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
+
+    def pc(v): return "#3B82F6" if v >= 0 else "#EF4444"
+    def wr_color(w, t): return "#3B82F6" if t > 0 and w / t >= 0.5 else "#EF4444" if t > 0 else "#6B7280"
+
+    open_rows = "".join([f"""<tr>
+        <td class="q">{p['question'][:70]}...</td>
+        <td class="{'yes' if p['side']=='YES' else 'no'}">{p['side']}</td>
+        <td class="num">{p['side_price']*100:.1f}&#162;</td>
+        <td class="num">{(p.get('current_price') or p['side_price'])*100:.1f}&#162;</td>
+        <td class="num" style="color:{pc(p.get('unrealized_pnl',0))}">{p.get('unrealized_pnl',0):+.2f}$</td>
+        <td class="num ev">+{p['ev']*100:.1f}%</td>
+        <td class="num">${p['stake_amt']:.2f}</td>
+        <td class="source">{p.get('group_name','?')}</td>
+    </tr>""" for p in open_]) or '<tr><td colspan="8" class="empty">Нет открытых позиций</td></tr>'
+
+    closed_rows = "".join([f"""<tr>
+        <td class="q">{t['question'][:60]}...</td>
+        <td class="{'yes' if t['side']=='YES' else 'no'}">{t['side']}</td>
+        <td class="num">{t['side_price']*100:.1f}&#162;</td>
+        <td class="num">{t.get('close_reason','?')}</td>
+        <td class="num" style="color:{pc(t['pnl'] or 0)}">{(t['pnl'] or 0):+.2f}$</td>
+        <td><span class="badge {'win' if t['result']=='WIN' else 'loss'}">{t['result']}</span></td>
+        <td class="num ev">+{t['ev']*100:.1f}%</td>
+        <td class="source">{t.get('group_name','?')}</td>
+    </tr>""" for t in reversed(closed)]) or '<tr><td colspan="8" class="empty">Нет сделок</td></tr>'
+
+    sig_rows = "".join([f"""<tr>
+        <td class="q">{s['question'][:60]}...</td>
+        <td class="{'yes' if s['side']=='YES' else 'no'}">{s['side']}</td>
+        <td class="num">{s['side_price']*100:.1f}&#162;</td>
+        <td class="num ev">+{s['ev']*100:.1f}%</td>
+        <td class="source">{s.get('group_name','?')}</td>
+        <td class="q">{(s.get('leader_question') or '?')[:50]}</td>
+        <td class="num">{(s.get('leader_move') or 0)*100:+.1f}&#162;</td>
+        <td>{'✅' if s.get('executed') else '❌'}</td>
+    </tr>""" for s in signals]) or '<tr><td colspan="8" class="empty">Нет сигналов</td></tr>'
+
+    # Analytics tables
+    group_rows = "".join([f"""<tr>
+        <td>{r['group_name']}</td>
+        <td class="num">{r['total']}</td>
+        <td class="num" style="color:{wr_color(r['wins'],r['total'])}">{r['wins']}/{r['total']} ({round(r['wins']/r['total']*100) if r['total']>0 else 0}%)</td>
+        <td class="num" style="color:{pc(float(r['avg_pnl']))}">{float(r['avg_pnl']):+.2f}$</td>
+        <td class="num" style="color:{pc(float(r['total_pnl']))}">{float(r['total_pnl']):+.2f}$</td>
+    </tr>""" for r in data["by_group"]]) or '<tr><td colspan="5" class="empty">Нет данных</td></tr>'
+
+    reason_rows = "".join([f"""<tr>
+        <td>{r['reason']}</td>
+        <td class="num">{r['total']}</td>
+        <td class="num" style="color:{wr_color(r['wins'],r['total'])}">{r['wins']}/{r['total']} ({round(r['wins']/r['total']*100) if r['total']>0 else 0}%)</td>
+        <td class="num" style="color:{pc(float(r['avg_pnl']))}">{float(r['avg_pnl']):+.2f}$</td>
+    </tr>""" for r in data["by_reason"]]) or '<tr><td colspan="4" class="empty">Нет данных</td></tr>'
+
+    side_rows = "".join([f"""<tr>
+        <td class="{'yes' if r['side']=='YES' else 'no'}">{r['side']}</td>
+        <td class="num">{r['total']}</td>
+        <td class="num" style="color:{wr_color(r['wins'],r['total'])}">{r['wins']}/{r['total']} ({round(r['wins']/r['total']*100) if r['total']>0 else 0}%)</td>
+        <td class="num" style="color:{pc(float(r['avg_pnl']))}">{float(r['avg_pnl']):+.2f}$</td>
+    </tr>""" for r in data["by_side"]]) or '<tr><td colspan="4" class="empty">Нет данных</td></tr>'
+
+    daily_rows = "".join([f"""<tr>
+        <td>{r['day']}</td>
+        <td class="num">{r['trades']}</td>
+        <td class="num" style="color:{wr_color(r['wins'],r['trades'])}">{r['wins']}/{r['trades']} ({round(r['wins']/r['trades']*100) if r['trades']>0 else 0}%)</td>
+        <td class="num" style="color:{pc(float(r['pnl']))}">{float(r['pnl']):+.2f}$</td>
+    </tr>""" for r in data["daily_pnl"]]) or '<tr><td colspan="4" class="empty">Нет данных</td></tr>'
+
+    # Pagination
+    page_links = ""
+    if total_pages > 1:
+        for p_num in range(1, total_pages + 1):
+            if p_num == page:
+                page_links += f'<span style="color:#3B82F6;font-weight:600;margin:0 4px">{p_num}</span>'
+            else:
+                page_links += f'<a href="/arbitrage?page={p_num}" style="color:#6B7280;text-decoration:none;margin:0 4px">{p_num}</a>'
+
+    return f"""<!DOCTYPE html>
+<html lang="ru"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arbitrage Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{
+  background:#111827;color:#E5E7EB;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+}}
+.container{{max-width:1400px;margin:0 auto;padding:24px 32px}}
+.header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #1F2937}}
+.header-left{{display:flex;align-items:center;gap:12px}}
+.header h1{{color:#F9FAFB;font-size:20px;font-weight:600;letter-spacing:-0.02em}}
+.status-dot{{width:8px;height:8px;border-radius:50%;background:#F59E0B;box-shadow:0 0 0 3px rgba(245,158,11,0.15);flex-shrink:0}}
+.header-right{{color:#6B7280;font-size:13px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:28px}}
+.card{{background:#1F2937;border:1px solid #374151;border-radius:12px;padding:20px;transition:border-color 0.15s ease}}
+.card:hover{{border-color:#4B5563}}
+.card .label{{color:#9CA3AF;font-size:12px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px}}
+.card .value{{font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace;font-size:28px;font-weight:700;letter-spacing:-0.02em}}
+.card .sub{{color:#6B7280;font-size:12px;margin-top:6px}}
+.panel{{background:#1F2937;border:1px solid #374151;border-radius:12px;margin-bottom:20px;overflow:hidden}}
+.panel-header{{padding:16px 20px;border-bottom:1px solid #374151;display:flex;align-items:center;gap:8px}}
+.panel-header h2{{color:#D1D5DB;font-size:13px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase}}
+.panel-header .count{{background:#374151;color:#9CA3AF;font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px}}
+table{{width:100%;border-collapse:collapse}}
+th{{color:#6B7280;text-align:left;padding:10px 16px;font-size:11px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;background:#1a2332;border-bottom:1px solid #374151}}
+td{{padding:12px 16px;border-bottom:1px solid rgba(55,65,81,0.5);vertical-align:middle;font-size:13px}}
+tr:nth-child(even) td{{background:rgba(17,24,39,0.3)}}
+tr:hover td{{background:rgba(55,65,81,0.3)}}
+.empty{{text-align:center;color:#4B5563;padding:32px;font-style:italic}}
+.num{{font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace;font-size:13px;font-variant-numeric:tabular-nums}}
+.yes{{color:#3B82F6;font-weight:600}}.no{{color:#EF4444;font-weight:600}}
+.ev{{color:#3B82F6}}.kl{{color:#F59E0B}}
+.q{{color:#9CA3AF;font-size:12px;max-width:280px;line-height:1.4}}
+.source{{color:#6B7280;font-size:12px;background:#374151;padding:2px 8px;border-radius:6px;display:inline-block}}
+.badge{{padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:0.02em}}
+.badge.win{{background:rgba(59,130,246,0.12);color:#60A5FA}}
+.badge.loss{{background:rgba(239,68,68,0.12);color:#F87171}}
+.two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
+.footer{{margin-top:32px;padding-top:20px;border-top:1px solid #1F2937;text-align:center;color:#4B5563;font-size:12px}}
+@media(max-width:900px){{.two-col{{grid-template-columns:1fr}}}}
+</style></head><body>
+<div class="container">
+
+<div class="header">
+  <div class="header-left">
+    <span class="status-dot"></span>
+    <h1>Arbitrage Bot</h1>
+  </div>
+  <div class="header-right">
+    <a href="/" style="color:#6B7280;text-decoration:none;margin-right:16px">&larr; Dashboard</a>
+    <a href="/analytics" style="color:#6B7280;text-decoration:none;margin-right:16px">Analytics</a>
+    {datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M UTC')}
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="label">Arb Bankroll</div>
+    <div class="value num" style="color:{pc(roi)}">${stats['bankroll']:.2f}</div>
+    <div class="sub">Start: ${arb_bankroll:.0f} | ROI: {roi:+.1f}%</div>
+  </div>
+  <div class="card">
+    <div class="label">Arb P&amp;L</div>
+    <div class="value num" style="color:{pc(stats['total_pnl'])}">{stats['total_pnl']:+.2f}$</div>
+    <div class="sub">{total} trades</div>
+  </div>
+  <div class="card">
+    <div class="label">Win Rate</div>
+    <div class="value num" style="color:{'#3B82F6' if wr>=50 else '#EF4444'}">{wr}%</div>
+    <div class="sub">{stats['wins']}W / {stats['losses']}L</div>
+  </div>
+  <div class="card">
+    <div class="label">Открытые</div>
+    <div class="value num" style="color:#F59E0B">{len(open_)}</div>
+    <div class="sub">Avg hold: {data['avg_lifetime_min']:.0f} min</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px;padding:20px">
+  <div class="panel-header" style="padding:0 0 12px 0"><h2>Arb Cumulative P&amp;L</h2></div>
+  <div style="height:250px"><canvas id="pnlChart"></canvas></div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Открытые позиции</h2><span class="count">{len(open_)}</span></div>
+  <table>
+    <tr><th>Market</th><th>Side</th><th>Entry</th><th>Current</th><th>uPnL</th><th>EV</th><th>Stake</th><th>Group</th></tr>
+    {open_rows}
+  </table>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Последние сигналы</h2><span class="count">{len(signals)}</span></div>
+  <table>
+    <tr><th>Market</th><th>Side</th><th>Price</th><th>EV</th><th>Group</th><th>Leader</th><th>Move</th><th>Exec</th></tr>
+    {sig_rows}
+  </table>
+</div>
+
+<div class="two-col">
+  <div class="panel">
+    <div class="panel-header"><h2>По группам</h2></div>
+    <table>
+      <tr><th>Group</th><th>Total</th><th>Win Rate</th><th>Avg PnL</th><th>Total PnL</th></tr>
+      {group_rows}
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>По причине закрытия</h2></div>
+    <table>
+      <tr><th>Reason</th><th>Total</th><th>Win Rate</th><th>Avg PnL</th></tr>
+      {reason_rows}
+    </table>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="panel">
+    <div class="panel-header"><h2>По стороне</h2></div>
+    <table>
+      <tr><th>Side</th><th>Total</th><th>Win Rate</th><th>Avg PnL</th></tr>
+      {side_rows}
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Daily P&amp;L (14d)</h2></div>
+    <table>
+      <tr><th>Date</th><th>Trades</th><th>Win Rate</th><th>P&amp;L</th></tr>
+      {daily_rows}
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>История</h2><span class="count">{total_closed}</span></div>
+  <table>
+    <tr><th>Market</th><th>Side</th><th>Entry</th><th>Close</th><th>P&amp;L</th><th>Result</th><th>EV</th><th>Group</th></tr>
+    {closed_rows}
+  </table>
+  {"<div style='padding:16px;text-align:center'>" + page_links + "</div>" if total_pages > 1 else ""}
+</div>
+
+<div class="footer"><a href="/" style="color:#6B7280;text-decoration:none">Quant Engine v3</a> &middot; Arbitrage</div>
+</div>
+
+<script>
+const pnlData = {to_json(pnl_data)};
+if (pnlData.length > 0) {{
+  new Chart(document.getElementById('pnlChart'), {{
+    type: 'line',
+    data: {{
+      labels: pnlData.map(d => new Date(d.t).toLocaleString('ru-RU', {{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}})),
+      datasets: [{{
+        label: 'Cumulative P&L',
+        data: pnlData.map(d => d.cum),
+        borderColor: pnlData[pnlData.length-1].cum >= 0 ? '#3B82F6' : '#EF4444',
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        pointRadius: 2,
+        borderWidth: 2
+      }}]
+    }},
+    options: {{
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {{ legend: {{ display: false }} }},
+      scales: {{
+        x: {{ ticks: {{ color: '#6B7280', maxTicksLimit: 10 }}, grid: {{ color: '#1F2937' }} }},
+        y: {{ ticks: {{ color: '#6B7280', callback: v => '$' + v.toFixed(2) }}, grid: {{ color: '#1F2937' }} }}
+      }}
+    }}
+  }});
+}}
+</script>
+</body></html>"""
+  except Exception as e:
+    log.error(f"[DASHBOARD] Arbitrage error: {e}", exc_info=True)
+    return HTMLResponse(f"<h1>Arbitrage Error</h1><pre>{e}</pre>", status_code=500)
+
 
 @app.get("/api")
 async def api_stats():
