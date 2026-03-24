@@ -131,17 +131,20 @@ async def login_page(request: Request, error: str = None):
 
 @app.post("/login")
 async def login_submit(request: Request):
-    form = await request.form()
-    token = form.get("token", "")
-    if hmac.compare_digest(token, DASHBOARD_TOKEN):
-        response = RedirectResponse(url="/", status_code=302)
-        response.set_cookie(
-            "session_token", _hash_token(DASHBOARD_TOKEN),
-            max_age=30 * 24 * 3600,  # 30 days
-            httponly=True, samesite="lax",
-        )
-        log.info("[AUTH] Login successful")
-        return response
+    try:
+        form = await request.form()
+        token = str(form.get("token", "") or "")
+        if token and hmac.compare_digest(token, DASHBOARD_TOKEN):
+            response = RedirectResponse(url="/", status_code=302)
+            response.set_cookie(
+                "session_token", _hash_token(DASHBOARD_TOKEN),
+                max_age=30 * 24 * 3600,  # 30 days
+                httponly=True, samesite="lax",
+            )
+            log.info("[AUTH] Login successful")
+            return response
+    except Exception as e:
+        log.error(f"[AUTH] Login error: {e}")
     log.warning(f"[AUTH] Failed login attempt from {request.client.host}")
     return RedirectResponse(url="/login?error=invalid", status_code=302)
 
