@@ -4,54 +4,72 @@ Read-only FastAPI dashboard for monitoring a prediction-market trading engine ("
 
 ## Stack
 
-- **Python** (FastAPI + uvicorn)
+- **Python** (FastAPI + uvicorn + Jinja2 templates)
 - **asyncpg** for Postgres
 - **Anthropic SDK** (Claude Sonnet for on-demand analysis)
+- **Chart.js** for frontend charts
 - Deployed via `Procfile` (`web: python app.py`)
 
 ## Project structure
 
 ```
-app.py           — Main FastAPI app: routes, HTML rendering, config
-utils/db.py      — Database class (asyncpg pool, read-only queries)
-requirements.txt — Python dependencies
-Procfile         — Process runner entry point
+app.py                — FastAPI routes and data orchestration (~250 lines)
+utils/
+  db.py               — Database class (asyncpg pool, read-only queries)
+  helpers.py           — Shared helpers: pc(), wr_color(), to_json()
+  metrics.py           — Pure Python metric computation: Sharpe, drawdown, streaks, equity curve, PnL distribution
+templates/
+  base.html            — Shared layout: CSS, nav, sort JS, footer
+  dashboard.html       — Main dashboard page
+  analytics.html       — Analytics page
+  arbitrage.html       — Arbitrage page
+requirements.txt
+Procfile
 ```
 
 ## Pages
 
 ### Dashboard (`/`)
-- Key metrics: bankroll, ROI, win rate (W/L), avg EV, avg Kelly, open position count
-- Cumulative P&L line chart (Chart.js)
-- Open positions table: question, side, entry/current price, unrealized P&L, EV, KL, stake, market link
-- Recent signals table (10 latest): question, side, market price, p_final, EV, KL, source
-- Closed positions history (paginated, 100/page): question, side, entry price, outcome, P&L, result, EV
+- Key metrics: bankroll, ROI, win rate, Sharpe ratio, max drawdown, win/loss streaks, avg EV, open position count
+- Charts: cumulative P&L, equity curve, drawdown
+- Open positions table with profit/loss count and total unrealized P&L
+- Recent signals table (10 latest)
+- Best/worst trade cards
+- Rolling 7d/30d performance cards (P&L + win rate)
+- Closed positions history (paginated with OFFSET/LIMIT, date filter, CSV export)
 
 ### Analytics (`/analytics`)
-- Summary: win rate, EV predicted vs actual, avg position lifetime (hours)
-- Config A/B testing table: compare parameter sets by trades, win rate, P&L, EV, stake
-- Breakdown tables: by theme, by source (math/news/claude), by side (YES/NO), by close reason (TP/SL/RESOLVED)
-- Calibration table: predicted probability buckets (0-30%, 30-50%, 50-70%, 70-100%) vs actual win rates with bias
-- Daily P&L table (14 days) and bar chart
-- Charts: cumulative P&L, daily P&L, calibration (predicted vs actual), win rate by theme
-- Signal backtest (last 50): execution status, direction accuracy, missed profit vs saved by rejection
-- Market metrics (top 50 active): volatility (ATR), momentum, volume ratio
-- AI analysis button: triggers Claude Sonnet analysis on all metrics
+- Summary: win rate, EV predicted vs actual, avg lifetime, Sharpe, max drawdown
+- Best/worst trade, rolling 7d/30d P&L
+- Date range filter
+- Config A/B testing table
+- Breakdown tables: by theme, by source, by side, by close reason
+- Calibration table and chart
+- Charts: cumulative P&L, daily P&L, calibration, win rate by theme (pie), equity curve, drawdown, P&L distribution histogram
+- Signal backtest (last 50)
+- Market metrics (top 50 active)
+- AI analysis button (Claude Sonnet)
 
 ### Arbitrage (`/arbitrage`)
-- Arb-specific stats: bankroll, ROI, P&L, win rate, open positions, avg hold time (minutes)
+- Arb-specific stats: bankroll, ROI, P&L, win rate, open positions, avg hold time
 - Arb cumulative P&L chart
-- Open arb positions and recent arb signals tables
-- Analytics: by group name, by close reason, by side, daily P&L
-- Closed arb history (paginated)
+- Open arb positions with profit/loss count and total uPnL
+- Recent arb signals
+- Analytics: by group, by close reason, by side, daily P&L
+- Closed arb history (paginated with OFFSET/LIMIT)
 
 ### API
 - `GET /api` — JSON stats: bankroll, open/closed counts
-- `POST /api/run-analysis` — Triggers Claude Sonnet-4.5 analysis, returns recommendations (max 500 words)
+- `GET /api/export/positions?date_from=&date_to=` — CSV export of closed positions
+- `POST /api/run-analysis` — Triggers Claude Sonnet analysis, returns recommendations
 
-## AI Analysis
+## Key architecture decisions
 
-On-demand via button on analytics page. Sends to Claude Sonnet: overall stats, win rates by theme/source/side, calibration data, EV accuracy, close reasons, current config. Returns actionable recommendations: what's working, what's not, specific config changes, risks. Max 800 tokens, plain text.
+- **Jinja2 templates** with base template inheritance — CSS/nav/sort JS defined once in `base.html`
+- **Helper functions** (`pc`, `wr_color`) registered as Jinja2 globals, no duplication
+- **Pagination** uses SQL `OFFSET/LIMIT` (not Python slicing)
+- **Metrics computation** (Sharpe, drawdown, streaks) is pure Python in `utils/metrics.py`, separated from DB layer
+- All tables have sortable column headers (client-side JS)
 
 ## Environment variables
 

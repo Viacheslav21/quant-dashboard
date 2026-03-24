@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}Quant Engine v3{% endblock %}
+{% block footer_mode %}{{ mode }} Mode{% endblock %}
+
+{% block content %}
+<div class="grid">
+  <div class="card" title="Текущий баланс">
+    <div class="label">Bankroll</div>
+    <div class="value num" style="color:{{ pc(roi) }}">${{ "%.2f"|format(stats.bankroll) }}</div>
+    <div class="sub">Start: ${{ "%.0f"|format(start) }}</div>
+  </div>
+  <div class="card" title="Return on Investment">
+    <div class="label">ROI</div>
+    <div class="value num" style="color:{{ pc(roi) }}">{{ "%+.2f"|format(roi) }}%</div>
+    <div class="sub">P&amp;L: {{ "%+.2f"|format(stats.total_pnl) }}$</div>
+  </div>
+  <div class="card" title="Процент выигранных сделок">
+    <div class="label">Win Rate</div>
+    <div class="value num" style="color:{{ '#3B82F6' if wr >= 50 else '#EF4444' }}">{{ wr }}%</div>
+    <div class="sub">{{ stats.wins }}W / {{ stats.losses }}L / {{ stats.wins + stats.losses }} total</div>
+  </div>
+  <div class="card" title="Sharpe Ratio — доходность с поправкой на риск. >1 = хорошо, >2 = отлично">
+    <div class="label">Sharpe Ratio</div>
+    <div class="value num" style="color:{{ '#10B981' if sharpe > 1 else '#F59E0B' if sharpe > 0 else '#EF4444' }}">{{ "%.2f"|format(sharpe) }}</div>
+    <div class="sub">Annualized risk-adjusted</div>
+  </div>
+  <div class="card" title="Максимальная просадка от пика баланса">
+    <div class="label">Max Drawdown</div>
+    <div class="value num" style="color:#EF4444">-{{ "%.1f"|format(drawdown.max_dd_pct) }}%</div>
+    <div class="sub">-{{ "%.2f"|format(drawdown.max_dd_abs) }}$</div>
+  </div>
+  <div class="card" title="Серии побед/поражений подряд">
+    <div class="label">Streaks</div>
+    <div class="value num">
+      <span style="color:#10B981">{{ streaks.cur_win }}W</span>
+      <span style="color:#6B7280;font-size:16px">/</span>
+      <span style="color:#EF4444">{{ streaks.cur_loss }}L</span>
+    </div>
+    <div class="sub">Max: {{ streaks.max_win }}W / {{ streaks.max_loss }}L</div>
+  </div>
+  <div class="card" title="Avg EV и Kelly">
+    <div class="label">Avg EV</div>
+    <div class="value num" style="color:#3B82F6">+{{ "%.1f"|format(stats.avg_ev * 100) }}%</div>
+    <div class="sub">Avg Kelly: {{ "%.1f"|format(stats.avg_kelly * 100) }}%</div>
+  </div>
+  <div class="card" title="Количество открытых позиций">
+    <div class="label">Открытые</div>
+    <div class="value num" style="color:#F59E0B">{{ open_positions|length }}</div>
+    <div class="sub">Max: {{ max_open }}</div>
+  </div>
+</div>
+
+<!-- Charts row: Cumulative PnL + Equity Curve -->
+<div class="row">
+  <div class="panel" style="padding:20px">
+    <div class="panel-header" style="padding:0 0 12px 0"><h2>Cumulative P&amp;L</h2></div>
+    <div style="height:250px"><canvas id="pnlChart"></canvas></div>
+  </div>
+  <div class="panel" style="padding:20px">
+    <div class="panel-header" style="padding:0 0 12px 0"><h2>Equity Curve</h2></div>
+    <div style="height:250px"><canvas id="equityChart"></canvas></div>
+  </div>
+</div>
+
+<!-- Drawdown chart -->
+<div class="panel" style="padding:20px;margin-bottom:20px">
+  <div class="panel-header" style="padding:0 0 12px 0"><h2>Drawdown</h2></div>
+  <div style="height:180px"><canvas id="ddChart"></canvas></div>
+</div>
+
+<!-- Open positions -->
+<div class="panel">
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2>Открытые позиции</h2>
+      <span class="count">{{ open_positions|length }}</span>
+    </div>
+    <div style="display:flex;gap:16px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace">
+      <span style="color:#10B981" title="Позиций в плюсе">+{{ open_in_profit }}</span>
+      <span style="color:#6B7280">/</span>
+      <span style="color:#EF4444" title="Позиций в минусе">-{{ open_in_loss }}</span>
+      <span style="color:#6B7280">|</span>
+      <span style="color:{{ pc(open_total_upnl) }}" title="Сумма unrealized P&L">{{ "%+.2f"|format(open_total_upnl) }}$</span>
+    </div>
+  </div>
+  <table>
+    <tr>
+      <th class="sortable">Вопрос</th>
+      <th class="sortable" title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th>
+      <th class="sortable" title="Цена при входе">Вход</th>
+      <th class="sortable" title="Текущая цена">Сейчас</th>
+      <th class="sortable" title="Unrealized P&L">uPnL</th>
+      <th class="sortable" title="Expected Value">EV</th>
+      <th class="sortable" title="KL-дивергенция">KL</th>
+      <th class="sortable" title="Размер ставки">Ставка</th>
+      <th></th>
+    </tr>
+    {% for p in open_positions %}
+    <tr>
+      <td class="q">{{ p.question[:70] }}...</td>
+      <td class="{{ 'yes' if p.side == 'YES' else 'no' }}">{{ p.side }}</td>
+      <td class="num">{{ "%.1f"|format(p.side_price * 100) }}&#162;</td>
+      <td class="num">{{ "%.1f"|format((p.current_price or p.side_price) * 100) }}&#162;</td>
+      <td class="num" style="color:{{ pc(p.unrealized_pnl or 0) }}">{{ "%+.2f"|format(p.unrealized_pnl or 0) }}$</td>
+      <td class="num ev">+{{ "%.1f"|format(p.ev * 100) }}%</td>
+      <td class="num kl">{{ "%.3f"|format(p.kl) }}</td>
+      <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
+      <td><a href="{{ p.url }}" target="_blank" class="link-arrow">&#8599;</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="empty">Нет открытых позиций</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- Recent signals -->
+<div class="panel">
+  <div class="panel-header">
+    <h2>Последние сигналы</h2>
+    <span class="count">{{ signals|length }}</span>
+  </div>
+  <table>
+    <tr>
+      <th class="sortable">Вопрос</th>
+      <th class="sortable">Side</th>
+      <th class="sortable" title="Рыночная цена">Рынок</th>
+      <th class="sortable" title="Наша расчётная вероятность">pTrue</th>
+      <th class="sortable">EV</th>
+      <th class="sortable">KL</th>
+      <th class="sortable" title="Источник сигнала">Источник</th>
+    </tr>
+    {% for s in signals %}
+    <tr>
+      <td class="q">{{ s.question[:60] }}...</td>
+      <td class="{{ 'yes' if s.side == 'YES' else 'no' }}">{{ s.side }}</td>
+      <td class="num">{{ "%.1f"|format(s.p_market * 100) }}&#162;</td>
+      <td class="num">{{ "%.1f"|format(s.p_final * 100) }}&#162;</td>
+      <td class="num ev">+{{ "%.1f"|format(s.ev * 100) }}%</td>
+      <td class="num kl">{{ "%.3f"|format(s.kl) }}</td>
+      <td class="source">{{ s.source or 'math' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="empty">Нет сигналов</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- Best / Worst trades -->
+{% if best_worst.best or best_worst.worst %}
+<div class="row">
+  {% if best_worst.best %}
+  <div class="card">
+    <div class="label">Best Trade</div>
+    <div class="value num" style="color:#10B981">+{{ "%.2f"|format(best_worst.best.pnl) }}$</div>
+    <div class="sub">{{ best_worst.best.question[:55] }}...</div>
+  </div>
+  {% endif %}
+  {% if best_worst.worst %}
+  <div class="card">
+    <div class="label">Worst Trade</div>
+    <div class="value num" style="color:#EF4444">{{ "%.2f"|format(best_worst.worst.pnl) }}$</div>
+    <div class="sub">{{ best_worst.worst.question[:55] }}...</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Rolling performance -->
+<div class="row" style="grid-template-columns:repeat(4,1fr)">
+  <div class="card">
+    <div class="label">7d P&amp;L</div>
+    <div class="value num" style="color:{{ pc(rolling.pnl_7d) }}">{{ "%+.2f"|format(rolling.pnl_7d) }}$</div>
+    <div class="sub">{{ rolling.trades_7d }} trades</div>
+  </div>
+  <div class="card">
+    <div class="label">30d P&amp;L</div>
+    <div class="value num" style="color:{{ pc(rolling.pnl_30d) }}">{{ "%+.2f"|format(rolling.pnl_30d) }}$</div>
+    <div class="sub">{{ rolling.trades_30d }} trades</div>
+  </div>
+  <div class="card">
+    <div class="label">7d Win Rate</div>
+    <div class="value num" style="color:{{ '#3B82F6' if rolling.wr_7d >= 50 else '#EF4444' if rolling.trades_7d > 0 else '#6B7280' }}">{{ "%.1f"|format(rolling.wr_7d) }}%</div>
+    <div class="sub">{{ rolling.wins_7d }}W / {{ rolling.trades_7d - rolling.wins_7d }}L</div>
+  </div>
+  <div class="card">
+    <div class="label">30d Win Rate</div>
+    <div class="value num" style="color:{{ '#3B82F6' if rolling.wr_30d >= 50 else '#EF4444' if rolling.trades_30d > 0 else '#6B7280' }}">{{ "%.1f"|format(rolling.wr_30d) }}%</div>
+    <div class="sub">{{ rolling.wins_30d }}W / {{ rolling.trades_30d - rolling.wins_30d }}L</div>
+  </div>
+</div>
+
+<!-- Closed history -->
+<div class="panel">
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2>История</h2>
+      <span class="count">{{ total_closed }} total / page {{ page }} of {{ total_pages }}</span>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <form method="GET" action="/" class="date-filter" style="margin-bottom:0">
+        <label>From:</label>
+        <input type="date" name="date_from" value="{{ date_from or '' }}">
+        <label>To:</label>
+        <input type="date" name="date_to" value="{{ date_to or '' }}">
+        <button type="submit">Filter</button>
+        <a href="/">Clear</a>
+      </form>
+      <a href="/api/export/positions?date_from={{ date_from or '' }}&date_to={{ date_to or '' }}" class="btn-export">Export CSV</a>
+    </div>
+  </div>
+  <table>
+    <tr>
+      <th class="sortable">Вопрос</th>
+      <th class="sortable">Side</th>
+      <th class="sortable">Вход</th>
+      <th class="sortable">Исход</th>
+      <th class="sortable">P&amp;L</th>
+      <th class="sortable">Итог</th>
+      <th class="sortable">EV</th>
+    </tr>
+    {% for t in closed %}
+    <tr>
+      <td class="q">{{ t.question[:60] }}...</td>
+      <td class="{{ 'yes' if t.side == 'YES' else 'no' }}">{{ t.side }}</td>
+      <td class="num">{{ "%.1f"|format(t.side_price * 100) }}&#162;</td>
+      <td>{{ t.outcome or '?' }}</td>
+      <td class="num" style="color:{{ pc(t.pnl) }}">{{ "%+.2f"|format(t.pnl) }}$</td>
+      <td><span class="badge {{ 'win' if t.result == 'WIN' else 'loss' }}">{{ t.result }}</span></td>
+      <td class="num ev">+{{ "%.1f"|format(t.ev * 100) }}%</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="empty">Нет сделок</td></tr>
+    {% endfor %}
+  </table>
+  <div style="padding:16px 20px;display:flex;justify-content:center;gap:12px">
+    {% if page > 1 %}
+      <a href="/?page={{ page - 1 }}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}" style="color:#3B82F6;text-decoration:none">&larr; Prev</a>
+    {% else %}
+      <span style="color:#374151">&larr; Prev</span>
+    {% endif %}
+    <span style="color:#6B7280">Page {{ page }}/{{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="/?page={{ page + 1 }}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}" style="color:#3B82F6;text-decoration:none">Next &rarr;</a>
+    {% else %}
+      <span style="color:#374151">Next &rarr;</span>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const chartColors = {blue:'#3B82F6',red:'#EF4444',yellow:'#F59E0B',green:'#10B981',grid:'rgba(55,65,81,0.3)',text:'#6B7280'};
+const tickOpts = {color:chartColors.text,font:{size:11}};
+const gridOpts = {color:chartColors.grid};
+
+// Cumulative P&L
+const pnlData = {{ pnl_data|safe }};
+if(pnlData.length > 0){
+  new Chart(document.getElementById('pnlChart'),{
+    type:'line',
+    data:{
+      labels:pnlData.map(d=>new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})),
+      datasets:[{
+        label:'Cumulative P&L ($)',data:pnlData.map(d=>d.cum),
+        borderColor:pnlData[pnlData.length-1].cum>=0?chartColors.blue:chartColors.red,
+        backgroundColor:pnlData[pnlData.length-1].cum>=0?'rgba(59,130,246,0.08)':'rgba(239,68,68,0.08)',
+        fill:true,tension:0.3,pointRadius:pnlData.length>50?0:3,pointHoverRadius:5,borderWidth:2
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`P&L: ${c.parsed.y>=0?'+':''}$${c.parsed.y.toFixed(2)}`}}},
+      scales:{x:{ticks:{...tickOpts,maxTicksLimit:8},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>'$'+v.toFixed(0)},grid:gridOpts}}
+    }
+  });
+}
+
+// Equity Curve
+const eqData = {{ equity_data|safe }};
+if(eqData.length > 1){
+  new Chart(document.getElementById('equityChart'),{
+    type:'line',
+    data:{
+      labels:eqData.map(d=>d.t?new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric'}):'Start'),
+      datasets:[{
+        label:'Equity ($)',data:eqData.map(d=>d.eq),
+        borderColor:chartColors.blue,backgroundColor:'rgba(59,130,246,0.08)',
+        fill:true,tension:0.3,pointRadius:eqData.length>50?0:3,borderWidth:2
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`$${c.parsed.y.toFixed(2)}`}}},
+      scales:{x:{ticks:{...tickOpts,maxTicksLimit:8},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>'$'+v},grid:gridOpts}}
+    }
+  });
+}
+
+// Drawdown
+const ddData = {{ drawdown_data|safe }};
+if(ddData.length > 0){
+  new Chart(document.getElementById('ddChart'),{
+    type:'line',
+    data:{
+      labels:ddData.map(d=>d.t?new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric'}):''),
+      datasets:[{
+        label:'Drawdown %',data:ddData.map(d=>-d.dd),
+        borderColor:chartColors.red,backgroundColor:'rgba(239,68,68,0.15)',
+        fill:true,tension:0.3,pointRadius:0,borderWidth:1.5
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`Drawdown: ${(-c.parsed.y).toFixed(2)}%`}}},
+      scales:{x:{ticks:{...tickOpts,maxTicksLimit:10},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>v+'%'},grid:gridOpts,max:0}}
+    }
+  });
+}
+</script>
+{% endblock %}

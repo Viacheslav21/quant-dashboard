@@ -13,23 +13,51 @@ class Database:
         self.pool = None
 
     async def init(self):
-        self.pool = await asyncpg.create_pool(self.url, min_size=2, max_size=5, command_timeout=30)
+        self.pool = await asyncpg.create_pool(self.url, min_size=2, max_size=10, command_timeout=30)
         log.info("[DB] Dashboard connected to shared database")
 
     async def get_stats(self) -> dict:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM stats WHERE id=1")
-            return dict(row) if row else {"bankroll": float(os.getenv("BANKROLL","1000")), "total_pnl":0,"total_bets":0,"wins":0,"losses":0,"avg_ev":0,"avg_kelly":0}
+            return dict(row) if row else {"bankroll": float(os.getenv("BANKROLL", "1000")), "total_pnl": 0, "total_bets": 0, "wins": 0, "losses": 0, "avg_ev": 0, "avg_kelly": 0}
 
     async def get_open_positions(self) -> list:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM positions WHERE status='open' ORDER BY opened_at DESC")
             return [dict(r) for r in rows]
 
-    async def get_closed_positions(self, limit: int = 100) -> list:
+    async def get_closed_positions(self, limit: int = 100, offset: int = 0, date_from=None, date_to=None) -> list:
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1", limit)
+            query = "SELECT * FROM positions WHERE status='closed'"
+            params = []
+            idx = 1
+            if date_from:
+                query += f" AND closed_at >= ${idx}::timestamptz"
+                params.append(date_from)
+                idx += 1
+            if date_to:
+                query += f" AND closed_at <= ${idx}::timestamptz"
+                params.append(date_to)
+                idx += 1
+            query += f" ORDER BY closed_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
+            params.extend([limit, offset])
+            rows = await conn.fetch(query, *params)
             return [dict(r) for r in rows]
+
+    async def get_closed_positions_count(self, date_from=None, date_to=None) -> int:
+        async with self.pool.acquire() as conn:
+            query = "SELECT COUNT(*) FROM positions WHERE status='closed'"
+            params = []
+            idx = 1
+            if date_from:
+                query += f" AND closed_at >= ${idx}::timestamptz"
+                params.append(date_from)
+                idx += 1
+            if date_to:
+                query += f" AND closed_at <= ${idx}::timestamptz"
+                params.append(date_to)
+                idx += 1
+            return await conn.fetchval(query, *params)
 
     async def get_recent_signals(self, limit: int = 20) -> list:
         async with self.pool.acquire() as conn:
@@ -47,7 +75,7 @@ class Database:
             """)
             return [{"t": r["closed_at"].isoformat(), "pnl": float(r["pnl"]), "cum": float(r["cumulative"])} for r in rows]
 
-    async def get_signal_outcomes(self, limit: int = 200) -> list:
+    async def get_signal_outcomes(self, limit: int = 50) -> list:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT s.id, s.question, s.side, s.side_price, s.p_market, s.p_final,
@@ -72,7 +100,7 @@ class Database:
             """, limit)
             return [dict(r) for r in rows]
 
-    async def get_all_market_metrics(self) -> list:
+    async def get_all_market_metrics(self, limit: int = 50) -> list:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT mm.*, m.question, m.yes_price, m.theme
@@ -80,7 +108,8 @@ class Database:
                 JOIN markets m ON mm.market_id = m.id
                 WHERE m.is_active = TRUE
                 ORDER BY mm.updated_at DESC
-            """)
+                LIMIT $1
+            """, limit)
             return [dict(r) for r in rows]
 
     async def get_config_history(self) -> list:
@@ -184,6 +213,76 @@ class Database:
             "ev_actual": float(ev_accuracy["avg_actual_return"] or 0) if ev_accuracy else 0,
         }
 
+    # ── New metric queries ──
+
+    async def get_all_closed_trades(self) -> list:
+        """All closed trades ordered chronologically for metric computation."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT pnl, stake_amt, result, closed_at, question
+                FROM positions WHERE status='closed' AND closed_at IS NOT NULL
+                ORDER BY closed_at ASC
+            """)
+            return [dict(r) for r in rows]
+
+    async def get_best_worst_trades(self) -> dict:
+        async with self.pool.acquire() as conn:
+            best = await conn.fetchrow(
+                "SELECT question, pnl, side, closed_at FROM positions WHERE status='closed' ORDER BY pnl DESC LIMIT 1")
+            worst = await conn.fetchrow(
+                "SELECT question, pnl, side, closed_at FROM positions WHERE status='closed' ORDER BY pnl ASC LIMIT 1")
+            return {
+                "best": dict(best) if best else None,
+                "worst": dict(worst) if worst else None,
+            }
+
+    async def get_rolling_performance(self) -> dict:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT
+                    COALESCE(SUM(CASE WHEN closed_at >= NOW() - INTERVAL '7 days' THEN pnl END), 0) as pnl_7d,
+                    COALESCE(COUNT(CASE WHEN closed_at >= NOW() - INTERVAL '7 days' THEN 1 END), 0) as trades_7d,
+                    COALESCE(SUM(CASE WHEN closed_at >= NOW() - INTERVAL '7 days' AND result='WIN' THEN 1 ELSE 0 END), 0) as wins_7d,
+                    COALESCE(SUM(CASE WHEN closed_at >= NOW() - INTERVAL '30 days' THEN pnl END), 0) as pnl_30d,
+                    COALESCE(COUNT(CASE WHEN closed_at >= NOW() - INTERVAL '30 days' THEN 1 END), 0) as trades_30d,
+                    COALESCE(SUM(CASE WHEN closed_at >= NOW() - INTERVAL '30 days' AND result='WIN' THEN 1 ELSE 0 END), 0) as wins_30d
+                FROM positions WHERE status='closed'
+            """)
+            r = dict(row) if row else {}
+            trades_7d = int(r.get("trades_7d", 0))
+            trades_30d = int(r.get("trades_30d", 0))
+            wins_7d = int(r.get("wins_7d", 0))
+            wins_30d = int(r.get("wins_30d", 0))
+            return {
+                "pnl_7d": float(r.get("pnl_7d", 0)),
+                "trades_7d": trades_7d,
+                "wins_7d": wins_7d,
+                "wr_7d": round(wins_7d / trades_7d * 100, 1) if trades_7d > 0 else 0,
+                "pnl_30d": float(r.get("pnl_30d", 0)),
+                "trades_30d": trades_30d,
+                "wins_30d": wins_30d,
+                "wr_30d": round(wins_30d / trades_30d * 100, 1) if trades_30d > 0 else 0,
+            }
+
+    async def get_positions_for_export(self, date_from=None, date_to=None) -> list:
+        async with self.pool.acquire() as conn:
+            query = """SELECT question, side, side_price, outcome, pnl, result, ev, kl,
+                              stake_amt, opened_at, closed_at, theme, config_tag
+                       FROM positions WHERE status='closed'"""
+            params = []
+            idx = 1
+            if date_from:
+                query += f" AND closed_at >= ${idx}::timestamptz"
+                params.append(date_from)
+                idx += 1
+            if date_to:
+                query += f" AND closed_at <= ${idx}::timestamptz"
+                params.append(date_to)
+                idx += 1
+            query += " ORDER BY closed_at DESC"
+            rows = await conn.fetch(query, *params)
+            return [dict(r) for r in rows]
+
     # ── Arbitrage tables (read-only) ──
 
     async def get_arb_stats(self) -> dict:
@@ -196,10 +295,11 @@ class Database:
             rows = await conn.fetch("SELECT * FROM arb_positions WHERE status='open' ORDER BY opened_at DESC")
             return [dict(r) for r in rows]
 
-    async def get_arb_closed_positions(self, limit: int = 100) -> list:
+    async def get_arb_closed_positions(self, limit: int = 100, offset: int = 0) -> list:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM arb_positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1", limit)
+                "SELECT * FROM arb_positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1 OFFSET $2",
+                limit, offset)
             return [dict(r) for r in rows]
 
     async def get_arb_signals(self, limit: int = 50) -> list:
