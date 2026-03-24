@@ -79,6 +79,9 @@ th.sortable.desc::after{content:'\2193';opacity:0.8}
     <a href="/analytics" {% if active_page == 'analytics' %}class="active"{% endif %}>Analytics</a>
     <a href="/arbitrage" {% if active_page == 'arbitrage' %}class="active"{% endif %}>Arbitrage</a>
     <span>{{ now_utc }}</span>
+    {% if auth_enabled %}
+    <a href="/logout" style="color:#EF4444;font-size:11px;opacity:0.6" title="Logout">&#x2715;</a>
+    {% endif %}
   </div>
 </div>
 

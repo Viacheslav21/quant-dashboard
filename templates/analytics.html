@@ -435,15 +435,38 @@ if(distData.labels.length>0){
   });
 }
 
-// AI Analysis
+// AI Analysis with API secret support
 async function runSonnetAnalysis(){
   const btn=document.getElementById('runAnalysis');
   const result=document.getElementById('analysisResult');
   btn.disabled=true;btn.textContent='Running...';btn.style.background='#6B7280';
-  result.textContent='Requesting Sonnet analysis...';
+  result.textContent='Requesting Sonnet analysis...';result.style.color='#E5E7EB';
   try{
-    const r=await fetch('/api/run-analysis',{method:'POST'});
-    const data=await r.json();
+    let r=await fetch('/api/run-analysis',{method:'POST'});
+    let data=await r.json();
+    // If API secret is required, prompt user
+    if(data.need_secret){
+      const secret=prompt('Enter API Secret for AI analysis:');
+      if(!secret){
+        result.textContent='Cancelled.';
+        btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
+        return;
+      }
+      // Verify and save cookie
+      const authR=await fetch('/api/auth/api-secret',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({secret:secret})
+      });
+      const authData=await authR.json();
+      if(!authData.ok){
+        result.textContent='Invalid API secret.';result.style.color='#EF4444';
+        btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
+        return;
+      }
+      // Retry with cookie now set
+      r=await fetch('/api/run-analysis',{method:'POST'});
+      data=await r.json();
+    }
     if(data.analysis){result.textContent=data.analysis}
     else{result.textContent='Error: '+(data.error||'Unknown error');result.style.color='#EF4444'}
   }catch(e){result.textContent='Request failed: '+e.message;result.style.color='#EF4444'}

@@ -7,9 +7,9 @@ def compute_sharpe_ratio(trades: list, risk_free_rate: float = 0.0) -> float:
         return 0.0
     returns = []
     for t in trades:
-        stake = t.get("stake_amt") or 0
+        stake = float(t.get("stake_amt") or 0)
         if stake > 0:
-            returns.append(t["pnl"] / stake)
+            returns.append(float(t["pnl"]) / stake)
     if len(returns) < 2:
         return 0.0
     mean_r = sum(returns) / len(returns)
@@ -26,14 +26,14 @@ def compute_max_drawdown(trades: list, start_bankroll: float) -> dict:
     if not trades:
         return {"max_dd_pct": 0, "max_dd_abs": 0, "series": []}
 
-    equity = start_bankroll
+    equity = float(start_bankroll)
     peak = equity
-    max_dd_abs = 0
-    max_dd_pct = 0
+    max_dd_abs = 0.0
+    max_dd_pct = 0.0
     series = []
 
     for t in trades:
-        equity += t["pnl"]
+        equity += float(t["pnl"])
         if equity > peak:
             peak = equity
         dd_abs = peak - equity
@@ -73,10 +73,10 @@ def compute_streaks(trades: list) -> dict:
 
 def compute_equity_curve(trades: list, start_bankroll: float) -> list:
     """Equity (bankroll) over time for charting."""
-    equity = start_bankroll
+    equity = float(start_bankroll)
     curve = [{"t": "", "eq": round(equity, 2)}]
     for t in trades:
-        equity += t["pnl"]
+        equity += float(t["pnl"])
         closed_at = t.get("closed_at")
         ts = closed_at.isoformat() if closed_at else ""
         curve.append({"t": ts, "eq": round(equity, 2)})
@@ -87,7 +87,7 @@ def compute_pnl_distribution(trades: list, n_bins: int = 15) -> dict:
     """P&L histogram buckets."""
     if not trades:
         return {"labels": [], "counts": []}
-    pnls = [t["pnl"] for t in trades]
+    pnls = [float(t["pnl"]) for t in trades]
     mn, mx = min(pnls), max(pnls)
     if mn == mx:
         return {"labels": [f"{mn:.2f}"], "counts": [len(pnls)]}

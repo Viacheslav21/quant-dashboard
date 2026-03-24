@@ -2,12 +2,15 @@ import os
 import io
 import csv
 import json
+import hmac
+import hashlib
 import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request, Response, Cookie
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 
 from utils.db import Database
@@ -29,6 +32,7 @@ templates = Jinja2Templates(directory="templates")
 templates.env.globals["pc"] = pc
 templates.env.globals["wr_color"] = wr_color
 templates.env.globals["to_json"] = to_json
+templates.env.globals["auth_enabled"] = bool(os.getenv("DASHBOARD_TOKEN", ""))
 
 _db = None
 _config = {
@@ -40,6 +44,121 @@ _config = {
     "TAKE_PROFIT_PCT":  float(os.getenv("TAKE_PROFIT_PCT", "0.20")),
     "STOP_LOSS_PCT":    float(os.getenv("STOP_LOSS_PCT", "0.30")),
 }
+
+DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
+API_SECRET = os.getenv("API_SECRET", "")
+
+# ── Auth ──
+
+def _hash_token(token: str) -> str:
+    """Hash token for secure cookie comparison."""
+    return hmac.new(b"quant-dash", token.encode(), hashlib.sha256).hexdigest()
+
+
+def _check_auth(request: Request) -> bool:
+    """Check if request is authenticated. Returns True if no token is set (disabled)."""
+    if not DASHBOARD_TOKEN:
+        return True
+    # Check cookie
+    cookie = request.cookies.get("session_token", "")
+    if cookie and hmac.compare_digest(cookie, _hash_token(DASHBOARD_TOKEN)):
+        return True
+    # Check Authorization header
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], DASHBOARD_TOKEN):
+        return True
+    # Check query param
+    if request.query_params.get("token") == DASHBOARD_TOKEN:
+        return True
+    return False
+
+
+def _check_api_secret(request: Request) -> bool:
+    """Check API secret for expensive operations. Returns True if no secret is set."""
+    if not API_SECRET:
+        return True
+    # Check header
+    secret = request.headers.get("x-api-secret", "")
+    if secret and hmac.compare_digest(secret, API_SECRET):
+        return True
+    # Check cookie
+    cookie = request.cookies.get("api_secret", "")
+    if cookie and hmac.compare_digest(cookie, _hash_token(API_SECRET)):
+        return True
+    return False
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # Login page is always accessible
+        if path in ("/login", "/favicon.ico"):
+            return await call_next(request)
+        # Check auth
+        if not _check_auth(request):
+            if path.startswith("/api"):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            return RedirectResponse(url="/login", status_code=302)
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
+
+
+# ── Login ──
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = None):
+    if not DASHBOARD_TOKEN:
+        return RedirectResponse(url="/", status_code=302)
+    if _check_auth(request):
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("login.html", {
+        "request": request, "error": error,
+    })
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    token = form.get("token", "")
+    if hmac.compare_digest(token, DASHBOARD_TOKEN):
+        response = RedirectResponse(url="/", status_code=302)
+        response.set_cookie(
+            "session_token", _hash_token(DASHBOARD_TOKEN),
+            max_age=30 * 24 * 3600,  # 30 days
+            httponly=True, samesite="lax",
+        )
+        log.info("[AUTH] Login successful")
+        return response
+    log.warning(f"[AUTH] Failed login attempt from {request.client.host}")
+    return RedirectResponse(url="/login?error=invalid", status_code=302)
+
+
+@app.get("/logout")
+async def logout():
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("session_token")
+    response.delete_cookie("api_secret")
+    return response
+
+
+@app.post("/api/auth/api-secret")
+async def verify_api_secret(request: Request):
+    """Verify API secret and set cookie for future requests."""
+    body = await request.json()
+    secret = body.get("secret", "")
+    if not API_SECRET:
+        return JSONResponse({"ok": True})
+    if hmac.compare_digest(secret, API_SECRET):
+        response = JSONResponse({"ok": True})
+        response.set_cookie(
+            "api_secret", _hash_token(API_SECRET),
+            max_age=30 * 24 * 3600,
+            httponly=True, samesite="lax",
+        )
+        return response
+    return JSONResponse({"error": "Invalid API secret"}, status_code=403)
 
 
 def _parse_date(s):
@@ -185,6 +304,8 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             "exec_right": exec_right, "exec_total": len(exec_sigs),
             "rej_right": rej_right, "rej_saved": rej_saved,
             "date_from": date_from, "date_to": date_to,
+            "has_api_secret": _check_api_secret(request),
+            "api_secret_required": bool(API_SECRET),
         })
     except Exception as e:
         log.error(f"[DASHBOARD] Analytics error: {e}", exc_info=True)
@@ -270,8 +391,10 @@ async def export_positions(date_from: str = None, date_to: str = None):
 
 
 @app.post("/api/run-analysis")
-async def run_analysis():
+async def run_analysis(request: Request):
     """Run Sonnet analysis on demand via dashboard button."""
+    if not _check_api_secret(request):
+        return JSONResponse({"error": "API secret required", "need_secret": True}, status_code=403)
     try:
         from anthropic import AsyncAnthropic
         client = AsyncAnthropic(api_key=_config["ANTHROPIC_KEY"])
