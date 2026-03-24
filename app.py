@@ -26,13 +26,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 log = logging.getLogger("dashboard")
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory="templates", cache_size=0)
 
-# Register helpers in Jinja2
-templates.env.globals["pc"] = pc
-templates.env.globals["wr_color"] = wr_color
-templates.env.globals["to_json"] = to_json
-templates.env.globals["auth_enabled"] = bool(os.getenv("DASHBOARD_TOKEN", ""))
+
+def _ctx(request: Request, **kwargs) -> dict:
+    """Base template context with helpers and auth flag."""
+    return {
+        "request": request,
+        "pc": pc,
+        "wr_color": wr_color,
+        "to_json": to_json,
+        "auth_enabled": bool(DASHBOARD_TOKEN),
+        "now_utc": datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
+        **kwargs,
+    }
 
 _db = None
 _config = {
@@ -208,23 +215,21 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-            "active_page": "dashboard",
-            "now_utc": datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
-            "stats": stats, "start": start, "roi": roi, "wr": wr, "mode": mode,
-            "open_positions": open_, "closed": closed, "signals": signals,
-            "open_in_profit": open_in_profit, "open_in_loss": open_in_loss,
-            "open_total_upnl": open_total_upnl,
-            "total_closed": total_closed, "page": page, "total_pages": total_pages,
-            "pnl_data": to_json(pnl_data),
-            "equity_data": to_json(equity),
-            "drawdown_data": to_json(drawdown["series"]),
-            "sharpe": sharpe, "drawdown": drawdown, "streaks": streaks,
-            "rolling": rolling, "best_worst": best_worst,
-            "max_open": os.getenv("MAX_OPEN", "5"),
-            "date_from": date_from, "date_to": date_to,
-        })
+        return templates.TemplateResponse("dashboard.html", _ctx(request,
+            active_page="dashboard",
+            stats=stats, start=start, roi=roi, wr=wr, mode=mode,
+            open_positions=open_, closed=closed, signals=signals,
+            open_in_profit=open_in_profit, open_in_loss=open_in_loss,
+            open_total_upnl=open_total_upnl,
+            total_closed=total_closed, page=page, total_pages=total_pages,
+            pnl_data=to_json(pnl_data),
+            equity_data=to_json(equity),
+            drawdown_data=to_json(drawdown["series"]),
+            sharpe=sharpe, drawdown=drawdown, streaks=streaks,
+            rolling=rolling, best_worst=best_worst,
+            max_open=os.getenv("MAX_OPEN", "5"),
+            date_from=date_from, date_to=date_to,
+        ))
     except Exception as e:
         log.error(f"[DASHBOARD] Render error: {e}", exc_info=True)
         return HTMLResponse(f"<h1>Dashboard Error</h1><pre>{e}</pre>", status_code=500)
@@ -285,28 +290,26 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         rej_right = sum(1 for s in rej_sigs if s.get("price_move") and s["price_move"] > 0)
         rej_saved = sum(1 for s in rej_sigs if not (s.get("price_move") and s["price_move"] > 0))
 
-        return templates.TemplateResponse("analytics.html", {
-            "request": request,
-            "active_page": "analytics",
-            "now_utc": datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
-            "stats": stats, "wr": wr, "ev_pred": ev_pred, "ev_act": ev_act,
-            "data": data, "config_rows": config_rows,
-            "sig_outcomes": sig_outcomes[:50], "market_metrics": market_metrics,
-            "pnl_data": to_json(pnl_data),
-            "daily_data": to_json(data["daily_pnl"]),
-            "cal_data": to_json(data["calibration"]),
-            "theme_data": to_json(data["by_theme"]),
-            "equity_data": to_json(equity),
-            "drawdown_data": to_json(drawdown["series"]),
-            "dist_data": to_json(pnl_dist),
-            "sharpe": sharpe, "drawdown": drawdown,
-            "rolling": rolling, "best_worst": best_worst,
-            "exec_right": exec_right, "exec_total": len(exec_sigs),
-            "rej_right": rej_right, "rej_saved": rej_saved,
-            "date_from": date_from, "date_to": date_to,
-            "has_api_secret": _check_api_secret(request),
-            "api_secret_required": bool(API_SECRET),
-        })
+        return templates.TemplateResponse("analytics.html", _ctx(request,
+            active_page="analytics",
+            stats=stats, wr=wr, ev_pred=ev_pred, ev_act=ev_act,
+            data=data, config_rows=config_rows,
+            sig_outcomes=sig_outcomes[:50], market_metrics=market_metrics,
+            pnl_data=to_json(pnl_data),
+            daily_data=to_json(data["daily_pnl"]),
+            cal_data=to_json(data["calibration"]),
+            theme_data=to_json(data["by_theme"]),
+            equity_data=to_json(equity),
+            drawdown_data=to_json(drawdown["series"]),
+            dist_data=to_json(pnl_dist),
+            sharpe=sharpe, drawdown=drawdown,
+            rolling=rolling, best_worst=best_worst,
+            exec_right=exec_right, exec_total=len(exec_sigs),
+            rej_right=rej_right, rej_saved=rej_saved,
+            date_from=date_from, date_to=date_to,
+            has_api_secret=_check_api_secret(request),
+            api_secret_required=bool(API_SECRET),
+        ))
     except Exception as e:
         log.error(f"[DASHBOARD] Analytics error: {e}", exc_info=True)
         return HTMLResponse(f"<h1>Analytics Error</h1><pre>{e}</pre>", status_code=500)
@@ -336,20 +339,18 @@ async def arbitrage(request: Request, page: int = 1):
         arb_open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         arb_open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse("arbitrage.html", {
-            "request": request,
-            "active_page": "arbitrage",
-            "now_utc": datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
-            "stats": stats, "roi": roi, "wr": wr, "total": total,
-            "arb_bankroll": arb_bankroll,
-            "open_positions": open_, "closed": list(reversed(closed)),
-            "signals": signals, "data": data,
-            "arb_open_in_profit": arb_open_in_profit,
-            "arb_open_in_loss": arb_open_in_loss,
-            "arb_open_total_upnl": arb_open_total_upnl,
-            "total_closed": total_closed, "page": page, "total_pages": total_pages,
-            "pnl_data": to_json(pnl_data),
-        })
+        return templates.TemplateResponse("arbitrage.html", _ctx(request,
+            active_page="arbitrage",
+            stats=stats, roi=roi, wr=wr, total=total,
+            arb_bankroll=arb_bankroll,
+            open_positions=open_, closed=list(reversed(closed)),
+            signals=signals, data=data,
+            arb_open_in_profit=arb_open_in_profit,
+            arb_open_in_loss=arb_open_in_loss,
+            arb_open_total_upnl=arb_open_total_upnl,
+            total_closed=total_closed, page=page, total_pages=total_pages,
+            pnl_data=to_json(pnl_data),
+        ))
     except Exception as e:
         log.error(f"[DASHBOARD] Arbitrage error: {e}", exc_info=True)
         return HTMLResponse(f"<h1>Arbitrage Error</h1><pre>{e}</pre>", status_code=500)
