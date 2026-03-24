@@ -36,10 +36,9 @@ templates = Jinja2Templates(directory="templates")
 templates.env = _env
 
 
-def _ctx(request: Request, **kwargs) -> dict:
+def _ctx(**kwargs) -> dict:
     """Base template context with helpers and auth flag."""
     return {
-        "request": request,
         "pc": pc,
         "wr_color": wr_color,
         "to_json": to_json,
@@ -127,9 +126,7 @@ async def login_page(request: Request, error: str = None):
         return RedirectResponse(url="/", status_code=302)
     if _check_auth(request):
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("login.html", {
-        "request": request, "error": error,
-    })
+    return templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 @app.post("/login")
@@ -222,7 +219,7 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse("dashboard.html", _ctx(request,
+        return templates.TemplateResponse(request, "dashboard.html", _ctx(
             active_page="dashboard",
             stats=stats, start=start, roi=roi, wr=wr, mode=mode,
             open_positions=open_, closed=closed, signals=signals,
@@ -297,7 +294,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         rej_right = sum(1 for s in rej_sigs if s.get("price_move") and s["price_move"] > 0)
         rej_saved = sum(1 for s in rej_sigs if not (s.get("price_move") and s["price_move"] > 0))
 
-        return templates.TemplateResponse("analytics.html", _ctx(request,
+        return templates.TemplateResponse(request, "analytics.html", _ctx(
             active_page="analytics",
             stats=stats, wr=wr, ev_pred=ev_pred, ev_act=ev_act,
             data=data, config_rows=config_rows,
@@ -346,7 +343,7 @@ async def arbitrage(request: Request, page: int = 1):
         arb_open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         arb_open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse("arbitrage.html", _ctx(request,
+        return templates.TemplateResponse(request, "arbitrage.html", _ctx(
             active_page="arbitrage",
             stats=stats, roi=roi, wr=wr, total=total,
             arb_bankroll=arb_bankroll,
