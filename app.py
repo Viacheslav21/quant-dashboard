@@ -259,7 +259,8 @@ async def cmd_close_position(request: Request):
                 RETURNING id
             """, position_id)
             # NOTIFY for instant pickup by engine
-            await conn.execute("NOTIFY trader_commands, $1", str(row["id"]))
+            await conn.execute(f"NOTIFY trader_commands, '{row['id']}'")
+
         return JSONResponse({"ok": True, "command_id": row["id"]})
     except Exception as e:
         log.error(f"[CMD] close command failed: {e}")

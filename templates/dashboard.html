@@ -6,6 +6,18 @@
 .btn-close-pos:hover{background:#EF4444;color:#fff}
 .btn-close-pos.loading{opacity:0.4;pointer-events:none}
 .btn-close-pos.done{border-color:#10B981;color:#10B981;pointer-events:none}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.active{display:flex}
+.modal{background:#1F2937;border:1px solid #374151;border-radius:16px;padding:28px;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+.modal h3{color:#F9FAFB;font-size:16px;font-weight:600;margin-bottom:20px}
+.modal-info{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin-bottom:20px;font-size:13px}
+.modal-info .lbl{color:#6B7280}.modal-info .val{color:#E5E7EB;font-family:'SF Mono',monospace}
+.modal-info .val.pos{color:#10B981}.modal-info .val.neg{color:#EF4444}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}
+.modal-btn{padding:8px 20px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s}
+.modal-btn.cancel{background:#374151;color:#D1D5DB}.modal-btn.cancel:hover{background:#4B5563}
+.modal-btn.confirm{background:#EF4444;color:#fff}.modal-btn.confirm:hover{background:#DC2626}
+.modal-btn.confirm.loading{opacity:0.5;pointer-events:none}
 {% endblock %}
 
 {% block content %}
@@ -113,7 +125,14 @@
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
       <td style="display:flex;gap:6px;align-items:center">
         <a href="{{ p.url }}" target="_blank" class="link-arrow">&#8599;</a>
-        <button class="btn-close-pos" data-id="{{ p.id }}" title="Закрыть позицию">&#10005;</button>
+        <button class="btn-close-pos" data-id="{{ p.id }}"
+                data-question="{{ p.question[:80] }}"
+                data-side="{{ p.side }}"
+                data-entry="{{ "%.1f"|format(p.side_price * 100) }}"
+                data-now="{{ "%.1f"|format((p.current_price or p.side_price) * 100) }}"
+                data-pnl="{{ "%+.2f"|format(p.unrealized_pnl or 0) }}"
+                data-stake="{{ "%.2f"|format(p.stake_amt) }}"
+                title="Закрыть позицию">&#10005;</button>
       </td>
     </tr>
     {% else %}
@@ -255,6 +274,25 @@
     {% endif %}
   </div>
 </div>
+<!-- Close position modal -->
+<div class="modal-overlay" id="closeModal">
+  <div class="modal">
+    <h3>Закрыть позицию?</h3>
+    <div class="modal-info">
+      <span class="lbl">Вопрос</span><span class="val" id="m-question"></span>
+      <span class="lbl">Сторона</span><span class="val" id="m-side"></span>
+      <span class="lbl">Вход</span><span class="val" id="m-entry"></span>
+      <span class="lbl">Сейчас</span><span class="val" id="m-now"></span>
+      <span class="lbl">P&L</span><span class="val" id="m-pnl"></span>
+      <span class="lbl">Ставка</span><span class="val" id="m-stake"></span>
+    </div>
+    <div id="m-error" style="color:#EF4444;font-size:12px;margin-bottom:12px;display:none"></div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" id="m-cancel">Отмена</button>
+      <button class="modal-btn confirm" id="m-confirm">Закрыть позицию</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -323,35 +361,80 @@ if(ddData.length > 0){
     }
   });
 }
-// Close position buttons
-document.querySelectorAll('.btn-close-pos').forEach(btn => {
-  btn.addEventListener('click', async function(){
-    const id = this.dataset.id;
-    if(!confirm('Закрыть позицию ' + id + '?')) return;
-    this.classList.add('loading');
-    this.textContent = '...';
+// Close position modal
+(function(){
+  const overlay = document.getElementById('closeModal');
+  const btnConfirm = document.getElementById('m-confirm');
+  const btnCancel = document.getElementById('m-cancel');
+  const errEl = document.getElementById('m-error');
+  let activeBtn = null;
+  let activeId = null;
+
+  function open(btn){
+    activeBtn = btn;
+    activeId = btn.dataset.id;
+    document.getElementById('m-question').textContent = btn.dataset.question;
+    const sideEl = document.getElementById('m-side');
+    sideEl.textContent = btn.dataset.side;
+    sideEl.style.color = btn.dataset.side === 'YES' ? '#3B82F6' : '#EF4444';
+    document.getElementById('m-entry').textContent = btn.dataset.entry + '\u00A2';
+    document.getElementById('m-now').textContent = btn.dataset.now + '\u00A2';
+    const pnlEl = document.getElementById('m-pnl');
+    const pnlVal = parseFloat(btn.dataset.pnl);
+    pnlEl.textContent = btn.dataset.pnl + '$';
+    pnlEl.className = 'val ' + (pnlVal >= 0 ? 'pos' : 'neg');
+    document.getElementById('m-stake').textContent = '$' + btn.dataset.stake;
+    errEl.style.display = 'none';
+    btnConfirm.classList.remove('loading');
+    btnConfirm.textContent = 'Закрыть позицию';
+    overlay.classList.add('active');
+  }
+
+  function close(){
+    overlay.classList.remove('active');
+    activeBtn = null;
+    activeId = null;
+  }
+
+  btnCancel.addEventListener('click', close);
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') close(); });
+
+  btnConfirm.addEventListener('click', async function(){
+    if(!activeId) return;
+    btnConfirm.classList.add('loading');
+    btnConfirm.textContent = 'Закрываю...';
+    errEl.style.display = 'none';
     try {
       const r = await fetch('/api/commands/close', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({position_id: id})
+        body: JSON.stringify({position_id: activeId})
       });
       const d = await r.json();
       if(d.ok){
-        this.classList.remove('loading');
-        this.classList.add('done');
-        this.textContent = '\u2713';
-        this.closest('tr').style.opacity = '0.4';
+        if(activeBtn){
+          activeBtn.classList.add('done');
+          activeBtn.textContent = '\u2713';
+          activeBtn.closest('tr').style.opacity = '0.4';
+        }
+        close();
       } else {
-        alert(d.error || 'Ошибка');
-        this.classList.remove('loading');
-        this.textContent = '\u2715';
+        errEl.textContent = d.error || 'Ошибка';
+        errEl.style.display = 'block';
+        btnConfirm.classList.remove('loading');
+        btnConfirm.textContent = 'Закрыть позицию';
       }
     } catch(e){
-      alert('Ошибка: ' + e.message);
-      this.classList.remove('loading');
-      this.textContent = '\u2715';
+      errEl.textContent = 'Ошибка: ' + e.message;
+      errEl.style.display = 'block';
+      btnConfirm.classList.remove('loading');
+      btnConfirm.textContent = 'Закрыть позицию';
     }
   });
-});
+
+  document.querySelectorAll('.btn-close-pos').forEach(btn => {
+    btn.addEventListener('click', function(){ open(this); });
+  });
+})();
 </script>
 {% endblock %}
