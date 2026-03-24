@@ -412,12 +412,8 @@ if(ddData.length > 0){
       });
       const d = await r.json();
       if(d.ok){
-        if(activeBtn){
-          activeBtn.classList.add('done');
-          activeBtn.textContent = '\u2713';
-          activeBtn.closest('tr').style.opacity = '0.4';
-        }
         close();
+        window.location.reload();
       } else {
         errEl.textContent = d.error || 'Ошибка';
         errEl.style.display = 'block';
