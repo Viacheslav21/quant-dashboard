@@ -43,7 +43,6 @@ def _ctx(**kwargs) -> dict:
         "wr_color": wr_color,
         "to_json": to_json,
         "auth_enabled": bool(DASHBOARD_TOKEN),
-        "now_utc": datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC"),
         **kwargs,
     }
 
@@ -190,7 +189,7 @@ def _parse_date(s):
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, page: int = 1, date_from: str = None, date_to: str = None):
     try:
-        per_page = 100
+        per_page = 20
         df = _parse_date(date_from)
         dt = _parse_date(date_to)
 
@@ -352,7 +351,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
 @app.get("/arbitrage", response_class=HTMLResponse)
 async def arbitrage(request: Request, page: int = 1):
     try:
-        per_page = 100
+        per_page = 20
         stats = await _db.get_arb_stats()
         open_ = await _db.get_arb_open_positions()
         total_closed = stats["wins"] + stats["losses"]

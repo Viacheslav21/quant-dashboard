@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block title %}Quant Engine v3{% endblock %}</title>
+<title>{% block title %}Quant Engine{% endblock %}</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -40,7 +40,7 @@ body{
 .nav-tabs .spacer{flex:1}
 .nav-tabs .meta{color:#4B5563;font-size:11px;padding:10px 0}
 .btn-logout{
-  padding:5px 12px;margin-left:8px;
+  padding:7px 16px;margin-left:12px;margin-bottom:8px;
   background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);
   color:#F87171;font-size:11px;font-weight:500;
   border-radius:6px;text-decoration:none;
@@ -106,11 +106,9 @@ th.sortable.desc::after{content:'\2193';opacity:0.8}
 <div class="header">
   <div class="header-left">
     <span class="status-dot {% block dot_color %}green{% endblock %}"></span>
-    <h1>{% block header_title %}Quant Engine v3{% endblock %}</h1>
+    <h1>{% block header_title %}Quant Engine{% endblock %}</h1>
   </div>
-  <div class="header-meta">
-    <span>{{ now_utc }}</span>
-  </div>
+  <div class="header-meta"></div>
 </div>
 
 <!-- Navigation tabs -->
@@ -127,7 +125,7 @@ th.sortable.desc::after{content:'\2193';opacity:0.8}
 {% block content %}{% endblock %}
 
 <div class="footer">
-  <a href="/" style="color:#6B7280;text-decoration:none">Quant Engine v3</a> &middot; {% block footer_mode %}{% endblock %}
+  <a href="/" style="color:#6B7280;text-decoration:none">Quant Engine</a> &middot; {% block footer_mode %}{% endblock %}
 </div>
 
 </div>
