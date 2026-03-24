@@ -26,7 +26,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 log = logging.getLogger("dashboard")
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates", cache_size=0)
+templates = Jinja2Templates(directory="templates")
+templates.env.cache = {}
 
 
 def _ctx(request: Request, **kwargs) -> dict:
