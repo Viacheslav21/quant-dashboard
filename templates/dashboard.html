@@ -108,6 +108,7 @@
       <th class="sortable" title="Цена при входе">Вход</th>
       <th class="sortable" title="Текущая цена">Сейчас</th>
       <th class="sortable" title="Unrealized P&L">uPnL</th>
+      <th class="sortable" title="Изменение цены от входа в %">%</th>
       <th class="sortable" title="Expected Value">EV</th>
       <th class="sortable" title="KL-дивергенция">KL</th>
       <th class="sortable" title="Размер ставки">Ставка</th>
@@ -121,6 +122,8 @@
       <td class="num">{{ "%.1f"|format(p.side_price * 100) }}&#162;</td>
       <td class="num">{{ "%.1f"|format((p.current_price or p.side_price) * 100) }}&#162;</td>
       <td class="num" style="color:{{ pc(p.unrealized_pnl or 0) }}">{{ "%+.2f"|format(p.unrealized_pnl or 0) }}$</td>
+      {% set pct_change = (((p.current_price or p.side_price) - p.side_price) / p.side_price * 100) if p.side_price else 0 %}
+      <td class="num" style="color:{{ pc(pct_change) }}">{{ "%+.1f"|format(pct_change) }}%</td>
       <td class="num ev">+{{ "%.1f"|format(p.ev * 100) }}%</td>
       <td class="num kl">{{ "%.3f"|format(p.kl) }}</td>
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
