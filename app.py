@@ -26,8 +26,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 log = logging.getLogger("dashboard")
 
 app = FastAPI()
+import jinja2 as _jinja2
+_env = _jinja2.Environment(
+    loader=_jinja2.FileSystemLoader("templates"),
+    autoescape=True,
+    cache_size=0,
+)
 templates = Jinja2Templates(directory="templates")
-templates.env.cache = {}
+templates.env = _env
 
 
 def _ctx(request: Request, **kwargs) -> dict:
