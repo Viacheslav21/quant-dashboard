@@ -374,7 +374,7 @@ async def arbitrage(request: Request, page: int = 1):
             active_page="arbitrage",
             stats=stats, roi=roi, wr=wr, total=total,
             arb_bankroll=arb_bankroll,
-            open_positions=open_, closed=list(reversed(closed)),
+            open_positions=open_, closed=closed,
             signals=signals, data=data,
             arb_open_in_profit=arb_open_in_profit,
             arb_open_in_loss=arb_open_in_loss,
