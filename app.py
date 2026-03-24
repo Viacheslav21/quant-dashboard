@@ -26,6 +26,43 @@ def to_json(data):
 log = logging.getLogger("dashboard")
 app = FastAPI()
 
+# Reusable sortable table CSS + JS (injected into every page)
+SORT_CSS = """
+th.sortable{cursor:pointer;user-select:none;position:relative;padding-right:22px}
+th.sortable::after{content:'\\2195';position:absolute;right:6px;top:50%;transform:translateY(-50%);opacity:0.3;font-size:12px}
+th.sortable.asc::after{content:'\\2191';opacity:0.8}
+th.sortable.desc::after{content:'\\2193';opacity:0.8}
+"""
+SORT_JS = """
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('th.sortable').forEach(function(th){
+    th.addEventListener('click', function(){
+      var table = th.closest('table');
+      var idx = Array.from(th.parentNode.children).indexOf(th);
+      var tbody = table.querySelector('tbody') || table;
+      var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(r){return !r.querySelector('th') && !r.querySelector('.empty')});
+      if(rows.length === 0) return;
+      var dir = th.classList.contains('asc') ? 'desc' : 'asc';
+      th.parentNode.querySelectorAll('th').forEach(function(h){h.classList.remove('asc','desc')});
+      th.classList.add(dir);
+      rows.sort(function(a,b){
+        var ca = a.children[idx], cb = b.children[idx];
+        if(!ca || !cb) return 0;
+        var ta = ca.textContent.trim(), tb = cb.textContent.trim();
+        var na = parseFloat(ta.replace(/[^\\d.\\-]/g,'')), nb = parseFloat(tb.replace(/[^\\d.\\-]/g,''));
+        var cmp;
+        if(!isNaN(na) && !isNaN(nb)){cmp = na - nb}
+        else{cmp = ta.localeCompare(tb, undefined, {numeric:true})}
+        return dir === 'asc' ? cmp : -cmp;
+      });
+      rows.forEach(function(r){tbody.appendChild(r)});
+    });
+  });
+});
+</script>
+"""
+
 _db     = None
 _config = {
     "ANTHROPIC_KEY":    os.getenv("ANTHROPIC_API_KEY"),
@@ -59,6 +96,10 @@ async def dashboard(page: int = 1):
     mode = "Simulation" if (_config or {}).get("SIMULATION", True) else "Live"
 
     def pc(v): return "#3B82F6" if v>=0 else "#EF4444"
+
+    open_in_profit = sum(1 for p in open_ if p.get('unrealized_pnl', 0) >= 0)
+    open_in_loss = sum(1 for p in open_ if p.get('unrealized_pnl', 0) < 0)
+    open_total_upnl = sum(p.get('unrealized_pnl', 0) for p in open_)
 
     open_rows = "".join([f"""<tr>
         <td class="q">{p['question'][:70]}...</td>
@@ -269,6 +310,7 @@ a.link-arrow:hover{{color:#3B82F6}}
   color:#4B5563;
   font-size:12px;
 }}
+{SORT_CSS}
 </style></head><body>
 <div class="container">
 
@@ -318,12 +360,21 @@ a.link-arrow:hover{{color:#3B82F6}}
 </div>
 
 <div class="panel">
-  <div class="panel-header">
-    <h2>Открытые позиции</h2>
-    <span class="count">{len(open_)}</span>
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2>Открытые позиции</h2>
+      <span class="count">{len(open_)}</span>
+    </div>
+    <div style="display:flex;gap:16px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace">
+      <span style="color:#10B981" title="Позиций в плюсе">+{open_in_profit}</span>
+      <span style="color:#6B7280">/</span>
+      <span style="color:#EF4444" title="Позиций в минусе">-{open_in_loss}</span>
+      <span style="color:#6B7280">|</span>
+      <span style="color:{pc(open_total_upnl)}" title="Сумма unrealized P&amp;L по всем открытым">{open_total_upnl:+.2f}$</span>
+    </div>
   </div>
   <table>
-    <tr><th>Вопрос</th><th title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th><th title="Цена при входе в позицию">Вход</th><th title="Текущая рыночная цена">Сейчас</th><th title="Unrealized P&amp;L — нереализованная прибыль/убыток">uPnL</th><th title="Expected Value — ожидаемая прибыль при входе">EV</th><th title="KL-дивергенция — расхождение нашей оценки от рыночной цены. Чем выше, тем сильнее сигнал">KL</th><th title="Размер ставки в долларах">Ставка</th><th></th></tr>
+    <tr><th class="sortable">Вопрос</th><th class="sortable" title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th><th class="sortable" title="Цена при входе в позицию">Вход</th><th class="sortable" title="Текущая рыночная цена">Сейчас</th><th class="sortable" title="Unrealized P&amp;L — нереализованная прибыль/убыток">uPnL</th><th class="sortable" title="Expected Value — ожидаемая прибыль при входе">EV</th><th class="sortable" title="KL-дивергенция — расхождение нашей оценки от рыночной цены. Чем выше, тем сильнее сигнал">KL</th><th class="sortable" title="Размер ставки в долларах">Ставка</th><th></th></tr>
     {open_rows}
   </table>
 </div>
@@ -334,7 +385,7 @@ a.link-arrow:hover{{color:#3B82F6}}
     <span class="count">{len(signals)}</span>
   </div>
   <table>
-    <tr><th>Вопрос</th><th title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th><th title="Текущая рыночная цена">Рынок</th><th title="Наша расчётная вероятность (после Байесовского анализа)">pTrue</th><th title="Expected Value — ожидаемая прибыль">EV</th><th title="KL-дивергенция — мера расхождения от рынка">KL</th><th title="Источник сигнала: math=математика, news=новости, claude=AI подтверждение">Источник</th></tr>
+    <tr><th class="sortable">Вопрос</th><th class="sortable" title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th><th class="sortable" title="Текущая рыночная цена">Рынок</th><th class="sortable" title="Наша расчётная вероятность (после Байесовского анализа)">pTrue</th><th class="sortable" title="Expected Value — ожидаемая прибыль">EV</th><th class="sortable" title="KL-дивергенция — мера расхождения от рынка">KL</th><th class="sortable" title="Источник сигнала: math=математика, news=новости, claude=AI подтверждение">Источник</th></tr>
     {sig_rows}
   </table>
 </div>
@@ -345,7 +396,7 @@ a.link-arrow:hover{{color:#3B82F6}}
     <span class="count">{total_closed} total / page {page} of {total_pages}</span>
   </div>
   <table>
-    <tr><th>Вопрос</th><th title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th><th title="Цена при входе">Вход</th><th title="Как закрылась позиция: YES/NO = рынок решился, YES@65¢ = продали по цене">Исход</th><th title="Profit &amp; Loss — реальная прибыль или убыток">P&amp;L</th><th title="WIN = прибыль, LOSS = убыток">Итог</th><th title="Expected Value при входе">EV</th></tr>
+    <tr><th class="sortable">Вопрос</th><th class="sortable" title="YES = ставка на ДА, NO = ставка на НЕТ">Side</th><th class="sortable" title="Цена при входе">Вход</th><th class="sortable" title="Как закрылась позиция: YES/NO = рынок решился, YES@65¢ = продали по цене">Исход</th><th class="sortable" title="Profit &amp; Loss — реальная прибыль или убыток">P&amp;L</th><th class="sortable" title="WIN = прибыль, LOSS = убыток">Итог</th><th class="sortable" title="Expected Value при входе">EV</th></tr>
     {closed_rows}
   </table>
   <div style="padding:16px 20px;display:flex;justify-content:center;gap:12px">
@@ -397,6 +448,7 @@ if(pnlData.length > 0) {{
   }});
 }}
 </script>
+{SORT_JS}
 </body></html>"""
   except Exception as e:
     log.error(f"[DASHBOARD] Render error: {e}", exc_info=True)
@@ -577,6 +629,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 .yes{{color:#3B82F6;font-weight:600}}.no{{color:#EF4444;font-weight:600}}
 .empty{{text-align:center;color:#4B5563;padding:32px;font-style:italic}}
 .footer{{margin-top:32px;padding-top:20px;border-top:1px solid #1F2937;text-align:center;color:#4B5563;font-size:12px}}
+{SORT_CSS}
 </style></head><body>
 <div class="container">
 
@@ -611,7 +664,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 <div class="panel" style="margin-bottom:20px">
   <div class="panel-header"><h2 title="Сравнение разных конфигураций. Меняй CONFIG_TAG в env при смене параметров чтобы отслеживать какая настройка лучше">Config A/B Testing</h2></div>
   <table>
-    <tr><th title="Тег конфигурации (env CONFIG_TAG)">Config</th><th>Trades</th><th>W/L (WR)</th><th title="Суммарный P&amp;L">Total PnL</th><th title="Средний P&amp;L на сделку">Avg PnL</th><th title="Средний EV при входе">Avg EV</th><th title="Средний размер ставки">Avg Stake</th><th title="Ключевые параметры этого конфига">Params</th></tr>
+    <tr><th class="sortable" title="Тег конфигурации (env CONFIG_TAG)">Config</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable" title="Суммарный P&amp;L">Total PnL</th><th class="sortable" title="Средний P&amp;L на сделку">Avg PnL</th><th class="sortable" title="Средний EV при входе">Avg EV</th><th class="sortable" title="Средний размер ставки">Avg Stake</th><th title="Ключевые параметры этого конфига">Params</th></tr>
     {config_rows}
   </table>
 </div>
@@ -619,22 +672,22 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 <div class="row">
   <div class="panel">
     <div class="panel-header"><h2 title="Какие темы рынков прибыльнее: crypto, iran, election и т.д.">Win Rate by Theme</h2></div>
-    <table><tr><th>Theme</th><th>Trades</th><th title="Выигранные/Всего (Win Rate %)">W/L (WR)</th><th title="Средний P&amp;L на сделку в этой теме">Avg PnL</th></tr>{theme_rows}</table>
+    <table><tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable" title="Выигранные/Всего (Win Rate %)">W/L (WR)</th><th class="sortable" title="Средний P&amp;L на сделку в этой теме">Avg PnL</th></tr>{theme_rows}</table>
   </div>
   <div class="panel">
     <div class="panel-header"><h2 title="Откуда пришёл сигнал: math=математика, news=новости, claude=AI подтвердил">Win Rate by Source</h2></div>
-    <table><tr><th>Source</th><th>Trades</th><th>W/L (WR)</th><th>Avg PnL</th></tr>{source_rows}</table>
+    <table><tr><th class="sortable">Source</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Avg PnL</th></tr>{source_rows}</table>
   </div>
 </div>
 
 <div class="row">
   <div class="panel">
     <div class="panel-header"><h2 title="YES = ставка что событие произойдёт, NO = не произойдёт">Win Rate by Side</h2></div>
-    <table><tr><th>Side</th><th>Trades</th><th>W/L (WR)</th><th>Avg PnL</th></tr>{side_rows}</table>
+    <table><tr><th class="sortable">Side</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Avg PnL</th></tr>{side_rows}</table>
   </div>
   <div class="panel">
     <div class="panel-header"><h2 title="Как закрылись позиции: TAKE_PROFIT=забрали прибыль, STOP_LOSS=ограничили убыток, RESOLVED=рынок решился">Close Reason</h2></div>
-    <table><tr><th title="TAKE_PROFIT: цена выросла до +20%. STOP_LOSS: цена упала на -25%. RESOLVED: рынок закрылся окончательно">Reason</th><th>Count</th><th>Avg PnL</th></tr>{reason_rows}</table>
+    <table><tr><th class="sortable" title="TAKE_PROFIT: цена выросла до +20%. STOP_LOSS: цена упала на -25%. RESOLVED: рынок закрылся окончательно">Reason</th><th class="sortable">Count</th><th class="sortable">Avg PnL</th></tr>{reason_rows}</table>
   </div>
 </div>
 
@@ -663,11 +716,11 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 <div class="row">
   <div class="panel" style="margin-bottom:20px">
     <div class="panel-header"><h2 title="Проверка точности модели: что мы предсказали vs что случилось. Если Bias положительный — модель overconfident">Calibration (table)</h2></div>
-    <table><tr><th title="Диапазон предсказанной вероятности">Bucket</th><th>Trades</th><th title="Средняя вероятность которую предсказала модель">Avg Predicted</th><th title="Реальный процент выигрышей в этом диапазоне">Actual WR</th><th title="Разница: Actual - Predicted. + = модель недооценивает (хорошо), - = переоценивает (плохо)">Bias</th></tr>{cal_rows}</table>
+    <table><tr><th class="sortable" title="Диапазон предсказанной вероятности">Bucket</th><th class="sortable">Trades</th><th class="sortable" title="Средняя вероятность которую предсказала модель">Avg Predicted</th><th class="sortable" title="Реальный процент выигрышей в этом диапазоне">Actual WR</th><th class="sortable" title="Разница: Actual - Predicted. + = модель недооценивает (хорошо), - = переоценивает (плохо)">Bias</th></tr>{cal_rows}</table>
   </div>
   <div class="panel">
     <div class="panel-header"><h2>Daily P&amp;L (table)</h2></div>
-    <table><tr><th>Date</th><th>Trades</th><th>W/L (WR)</th><th>P&amp;L</th></tr>{daily_rows}</table>
+    <table><tr><th class="sortable">Date</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">P&amp;L</th></tr>{daily_rows}</table>
   </div>
 </div>
 
@@ -699,7 +752,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 
 <div class="panel">
   <div class="panel-header"><h2>Signal Backtest (last 50)</h2></div>
-  <table><tr><th>Question</th><th>Side</th><th>Entry</th><th>Now</th><th>Move</th><th>Direction</th><th>Status</th></tr>
+  <table><tr><th class="sortable">Question</th><th class="sortable">Side</th><th class="sortable">Entry</th><th class="sortable">Now</th><th class="sortable">Move</th><th class="sortable">Direction</th><th class="sortable">Status</th></tr>
     {bt_rows}
   </table>
 </div>
@@ -707,10 +760,10 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 <div class="panel">
   <div class="panel-header"><h2 title="Волатильность и моментум по рынкам. Volatility = ATR (средний размер колебания). Momentum = направление тренда">Market Metrics (top 50)</h2></div>
   <table><tr>
-    <th>Question</th><th>Price</th><th>Theme</th>
-    <th title="ATR — средний размер колебания цены за 30 мин. Зелёный=спокойный, жёлтый=средний, красный=волатильный">Volatility</th>
-    <th title="Направление тренда. Синий=растёт, красный=падает">Momentum</th>
-    <th title="Объём сейчас / средний. >2.5x = кто-то что-то знает">Vol Ratio</th>
+    <th class="sortable">Question</th><th class="sortable">Price</th><th class="sortable">Theme</th>
+    <th class="sortable" title="ATR — средний размер колебания цены за 30 мин. Зелёный=спокойный, жёлтый=средний, красный=волатильный">Volatility</th>
+    <th class="sortable" title="Направление тренда. Синий=растёт, красный=падает">Momentum</th>
+    <th class="sortable" title="Объём сейчас / средний. >2.5x = кто-то что-то знает">Vol Ratio</th>
   </tr>
     {mm_rows}
   </table>
@@ -795,20 +848,30 @@ if(calData.length > 0) {{
   }});
 }}
 
-// Win rate by theme
+// Win rate by theme (pie chart)
 if(themeData.length > 0) {{
+  const pieColors = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1','#06B6D4','#84CC16','#E11D48'];
   new Chart(document.getElementById('themeChart'), {{
-    type: 'bar',
+    type: 'pie',
     data: {{
       labels: themeData.map(d => d.theme),
-      datasets: [
-        {{ label: 'Win Rate %', data: themeData.map(d => d.total>0 ? Math.round(d.wins/d.total*100) : 0), backgroundColor: themeData.map(d => d.total>0 && d.wins/d.total>=0.5 ? 'rgba(59,130,246,0.7)' : 'rgba(239,68,68,0.5)'), borderRadius: 4 }}
-      ]
+      datasets: [{{
+        data: themeData.map(d => d.total),
+        backgroundColor: themeData.map((d,i) => pieColors[i % pieColors.length]),
+        borderColor: '#1F2937',
+        borderWidth: 2
+      }}]
     }},
     options: {{
-      responsive:true, maintainAspectRatio:false, indexAxis: 'y',
-      plugins:{{ legend:{{display:false}}, tooltip:{{callbacks:{{label:c=>c.parsed.x+'% ('+themeData[c.dataIndex].wins+'/'+themeData[c.dataIndex].total+')'}}}} }},
-      scales:{{ x:{{ticks:{{...tickOpts,callback:v=>v+'%'}},grid:gridOpts,max:100}}, y:{{ticks:tickOpts,grid:gridOpts}} }}
+      responsive:true, maintainAspectRatio:false,
+      plugins: {{
+        legend: {{ position:'right', labels: {{ color:'#D1D5DB', font:{{size:11}}, padding:8, usePointStyle:true, pointStyle:'circle' }} }},
+        tooltip: {{ callbacks: {{ label: function(c) {{
+          var d = themeData[c.dataIndex];
+          var wr = d.total > 0 ? Math.round(d.wins/d.total*100) : 0;
+          return d.theme + ': ' + d.total + ' trades, WR ' + wr + '% (' + d.wins + 'W/' + (d.total-d.wins) + 'L)';
+        }} }} }}
+      }}
     }}
   }});
 }}
@@ -837,6 +900,7 @@ async function runSonnetAnalysis() {{
   btn.style.background = '#3B82F6';
 }}
 </script>
+{SORT_JS}
 </body></html>"""
   except Exception as e:
     log.error(f"[DASHBOARD] Analytics error: {e}", exc_info=True)
@@ -864,6 +928,10 @@ async def arbitrage(page: int = 1):
     def pc(v): return "#3B82F6" if v >= 0 else "#EF4444"
     def wr_color(w, t): return "#3B82F6" if t > 0 and w / t >= 0.5 else "#EF4444" if t > 0 else "#6B7280"
 
+    arb_open_in_profit = sum(1 for p in open_ if p.get('unrealized_pnl', 0) >= 0)
+    arb_open_in_loss = sum(1 for p in open_ if p.get('unrealized_pnl', 0) < 0)
+    arb_open_total_upnl = sum(p.get('unrealized_pnl', 0) for p in open_)
+
     open_rows = "".join([f"""<tr>
         <td class="q">{p['question'][:70]}...</td>
         <td class="{'yes' if p['side']=='YES' else 'no'}">{p['side']}</td>
@@ -878,11 +946,11 @@ async def arbitrage(page: int = 1):
     closed_rows = "".join([f"""<tr>
         <td class="q">{t['question'][:60]}...</td>
         <td class="{'yes' if t['side']=='YES' else 'no'}">{t['side']}</td>
-        <td class="num">{t['side_price']*100:.1f}&#162;</td>
+        <td class="num">{t['side_price']*100:.1f}&#162;→{(t.get('current_price') or t['side_price'])*100:.1f}&#162;</td>
         <td class="num">{t.get('close_reason','?')}</td>
         <td class="num" style="color:{pc(t['pnl'] or 0)}">{(t['pnl'] or 0):+.2f}$</td>
         <td><span class="badge {'win' if t['result']=='WIN' else 'loss'}">{t['result']}</span></td>
-        <td class="num ev">+{t['ev']*100:.1f}%</td>
+        <td class="num" style="color:{pc((t['pnl'] or 0))}">{((t.get('current_price') or t['side_price']) / t['side_price'] - 1)*100:+.1f}%</td>
         <td class="source">{t.get('group_name','?')}</td>
     </tr>""" for t in reversed(closed)]) or '<tr><td colspan="8" class="empty">Нет сделок</td></tr>'
 
@@ -981,6 +1049,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
 .footer{{margin-top:32px;padding-top:20px;border-top:1px solid #1F2937;text-align:center;color:#4B5563;font-size:12px}}
 @media(max-width:900px){{.two-col{{grid-template-columns:1fr}}}}
+{SORT_CSS}
 </style></head><body>
 <div class="container">
 
@@ -1025,9 +1094,21 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 </div>
 
 <div class="panel">
-  <div class="panel-header"><h2>Открытые позиции</h2><span class="count">{len(open_)}</span></div>
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2>Открытые позиции</h2>
+      <span class="count">{len(open_)}</span>
+    </div>
+    <div style="display:flex;gap:16px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace">
+      <span style="color:#10B981" title="Позиций в плюсе">+{arb_open_in_profit}</span>
+      <span style="color:#6B7280">/</span>
+      <span style="color:#EF4444" title="Позиций в минусе">-{arb_open_in_loss}</span>
+      <span style="color:#6B7280">|</span>
+      <span style="color:{pc(arb_open_total_upnl)}" title="Сумма unrealized P&amp;L">{arb_open_total_upnl:+.2f}$</span>
+    </div>
+  </div>
   <table>
-    <tr><th>Market</th><th>Side</th><th>Entry</th><th>Current</th><th>uPnL</th><th>EV</th><th>Stake</th><th>Group</th></tr>
+    <tr><th class="sortable">Market</th><th class="sortable">Side</th><th class="sortable">Entry</th><th class="sortable">Current</th><th class="sortable">uPnL</th><th class="sortable">EV</th><th class="sortable">Stake</th><th class="sortable">Group</th></tr>
     {open_rows}
   </table>
 </div>
@@ -1035,7 +1116,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 <div class="panel">
   <div class="panel-header"><h2>Последние сигналы</h2><span class="count">{len(signals)}</span></div>
   <table>
-    <tr><th>Market</th><th>Side</th><th>Price</th><th>EV</th><th>Group</th><th>Leader</th><th>Move</th><th>Exec</th></tr>
+    <tr><th class="sortable">Market</th><th class="sortable">Side</th><th class="sortable">Price</th><th class="sortable">EV</th><th class="sortable">Group</th><th class="sortable">Leader</th><th class="sortable">Move</th><th class="sortable">Exec</th></tr>
     {sig_rows}
   </table>
 </div>
@@ -1044,14 +1125,14 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
   <div class="panel">
     <div class="panel-header"><h2>По группам</h2></div>
     <table>
-      <tr><th>Group</th><th>Total</th><th>Win Rate</th><th>Avg PnL</th><th>Total PnL</th></tr>
+      <tr><th class="sortable">Group</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th><th class="sortable">Total PnL</th></tr>
       {group_rows}
     </table>
   </div>
   <div class="panel">
     <div class="panel-header"><h2>По причине закрытия</h2></div>
     <table>
-      <tr><th>Reason</th><th>Total</th><th>Win Rate</th><th>Avg PnL</th></tr>
+      <tr><th class="sortable">Reason</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
       {reason_rows}
     </table>
   </div>
@@ -1061,14 +1142,14 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
   <div class="panel">
     <div class="panel-header"><h2>По стороне</h2></div>
     <table>
-      <tr><th>Side</th><th>Total</th><th>Win Rate</th><th>Avg PnL</th></tr>
+      <tr><th class="sortable">Side</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
       {side_rows}
     </table>
   </div>
   <div class="panel">
     <div class="panel-header"><h2>Daily P&amp;L (14d)</h2></div>
     <table>
-      <tr><th>Date</th><th>Trades</th><th>Win Rate</th><th>P&amp;L</th></tr>
+      <tr><th class="sortable">Date</th><th class="sortable">Trades</th><th class="sortable">Win Rate</th><th class="sortable">P&amp;L</th></tr>
       {daily_rows}
     </table>
   </div>
@@ -1077,7 +1158,7 @@ tr:hover td{{background:rgba(55,65,81,0.3)}}
 <div class="panel">
   <div class="panel-header"><h2>История</h2><span class="count">{total_closed}</span></div>
   <table>
-    <tr><th>Market</th><th>Side</th><th>Entry</th><th>Close</th><th>P&amp;L</th><th>Result</th><th>EV</th><th>Group</th></tr>
+    <tr><th class="sortable">Market</th><th class="sortable">Side</th><th class="sortable">Entry→Exit</th><th class="sortable">Close</th><th class="sortable">P&amp;L</th><th class="sortable">Result</th><th class="sortable">PnL%</th><th class="sortable">Group</th></tr>
     {closed_rows}
   </table>
   {"<div style='padding:16px;text-align:center'>" + page_links + "</div>" if total_pages > 1 else ""}
@@ -1115,6 +1196,7 @@ if (pnlData.length > 0) {{
   }});
 }}
 </script>
+{SORT_JS}
 </body></html>"""
   except Exception as e:
     log.error(f"[DASHBOARD] Arbitrage error: {e}", exc_info=True)
