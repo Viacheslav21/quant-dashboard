@@ -125,7 +125,8 @@
       <td class="num kl">{{ "%.3f"|format(p.kl) }}</td>
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
       <td class="num" style="color:#6B7280;font-size:11px">{{ p.opened_at.strftime('%d.%m %H:%M') if p.opened_at else '—' }}</td>
-      <td style="display:flex;gap:6px;align-items:center">
+      <td>
+        <div style="display:flex;gap:6px;align-items:center">
         <a href="{{ p.url }}" target="_blank" class="link-arrow">&#8599;</a>
         <button class="btn-close-pos" data-id="{{ p.id }}"
                 data-question="{{ p.question[:80] }}"
@@ -135,6 +136,7 @@
                 data-pnl="{{ "%+.2f"|format(p.unrealized_pnl or 0) }}"
                 data-stake="{{ "%.2f"|format(p.stake_amt) }}"
                 title="Закрыть позицию">&#10005;</button>
+        </div>
       </td>
     </tr>
     {% else %}

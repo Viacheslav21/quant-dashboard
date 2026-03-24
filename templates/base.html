@@ -23,30 +23,29 @@ body{
 
 /* Tabs */
 .nav-tabs{
-  display:flex;align-items:center;gap:0;
+  display:flex;align-items:stretch;
   margin-bottom:28px;
-  border-bottom:1px solid #1F2937;
+  border-bottom:1px solid #374151;
 }
-.nav-tabs a{
-  padding:10px 20px;
+.nav-tabs a.tab{
+  padding:12px 20px;
   color:#6B7280;font-size:13px;font-weight:500;
   text-decoration:none;
   border-bottom:2px solid transparent;
-  transition:all 0.15s;
   margin-bottom:-1px;
+  transition:color 0.15s;
 }
-.nav-tabs a:hover{color:#D1D5DB}
-.nav-tabs a.active{color:#3B82F6;border-bottom-color:#3B82F6}
+.nav-tabs a.tab:hover{color:#D1D5DB}
+.nav-tabs a.tab.active{color:#3B82F6;border-bottom-color:#3B82F6}
 .nav-tabs .spacer{flex:1}
-.nav-tabs .meta{color:#4B5563;font-size:11px;padding:10px 0}
 .btn-logout{
-  padding:6px 14px;margin-left:12px;align-self:center;
-  background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);
-  color:#F87171;font-size:11px;font-weight:500;
-  border-radius:6px;text-decoration:none;
-  transition:all 0.15s;
+  display:flex;align-items:center;
+  padding:0 14px;margin-bottom:-1px;
+  background:none;border:none;border-bottom:2px solid transparent;
+  color:#6B7280;font-size:12px;font-weight:500;
+  text-decoration:none;transition:color 0.15s;
 }
-.btn-logout:hover{background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.4);color:#FCA5A5}
+.btn-logout:hover{color:#F87171}
 
 /* ── Layout ── */
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:28px}
@@ -114,9 +113,9 @@ th.sortable.desc::after{content:'\2193';opacity:0.8}
 
 <!-- Navigation tabs -->
 <div class="nav-tabs">
-  <a href="/" {% if active_page == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
-  <a href="/analytics" {% if active_page == 'analytics' %}class="active"{% endif %}>Analytics</a>
-  <a href="/arbitrage" {% if active_page == 'arbitrage' %}class="active"{% endif %}>Arbitrage</a>
+  <a href="/" class="tab{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
+  <a href="/analytics" class="tab{% if active_page == 'analytics' %} active{% endif %}">Analytics</a>
+  <a href="/arbitrage" class="tab{% if active_page == 'arbitrage' %} active{% endif %}">Arbitrage</a>
   <div class="spacer"></div>
   {% if auth_enabled %}
   <a href="/logout" class="btn-logout">Logout</a>
