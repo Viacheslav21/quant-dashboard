@@ -281,14 +281,17 @@
 
 <!-- Signal Backtest -->
 <div class="panel">
-  <div class="panel-header"><h2>Signal Backtest (last 50)</h2></div>
-  <table>
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+    <h2>Signal Backtest</h2>
+    <span class="count">{{ sig_outcomes|length }}</span>
+  </div>
+  <table id="tbl-backtest">
     <tr>
       <th class="sortable">Question</th><th class="sortable">Side</th><th class="sortable">Entry</th>
       <th class="sortable">Now</th><th class="sortable">Move</th><th class="sortable">Direction</th><th class="sortable">Status</th>
     </tr>
     {% for s in sig_outcomes %}
-    <tr>
+    <tr{% if loop.index > 20 %} class="hidden-row" style="display:none"{% endif %}>
       <td class="q">{{ s.question[:55] }}...</td>
       <td class="{{ 'yes' if s.side == 'YES' else 'no' }}">{{ s.side }}</td>
       <td class="num">{{ "%.1f"|format(s.side_price * 100) }}&#162;</td>
@@ -302,12 +305,20 @@
     <tr><td colspan="7" class="empty">No signals</td></tr>
     {% endfor %}
   </table>
+  {% if sig_outcomes|length > 20 %}
+  <div style="padding:12px 20px;text-align:center">
+    <a href="#" onclick="toggleRows('tbl-backtest',this);return false" style="color:#3B82F6;text-decoration:none;font-size:13px">Show all ({{ sig_outcomes|length }})</a>
+  </div>
+  {% endif %}
 </div>
 
 <!-- Market Metrics -->
 <div class="panel">
-  <div class="panel-header"><h2 title="Волатильность и моментум по рынкам">Market Metrics (top 50)</h2></div>
-  <table>
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+    <h2 title="Волатильность и моментум по рынкам">Market Metrics</h2>
+    <span class="count">{{ market_metrics|length }}</span>
+  </div>
+  <table id="tbl-metrics">
     <tr>
       <th class="sortable">Question</th><th class="sortable">Price</th><th class="sortable">Theme</th>
       <th class="sortable" title="ATR волатильность">Volatility</th>
@@ -318,7 +329,7 @@
     {% set vol = m.volatility or 0 %}
     {% set mom = m.momentum or 0 %}
     {% set vr = m.vol_ratio or 1.0 %}
-    <tr>
+    <tr{% if loop.index > 20 %} class="hidden-row" style="display:none"{% endif %}>
       <td class="q">{{ (m.question or '')[:55] }}...</td>
       <td class="num">{{ "%.1f"|format((m.yes_price or 0) * 100) }}&#162;</td>
       <td class="num">{{ m.theme or 'other' }}</td>
@@ -330,6 +341,11 @@
     <tr><td colspan="6" class="empty">No metrics yet</td></tr>
     {% endfor %}
   </table>
+  {% if market_metrics|length > 20 %}
+  <div style="padding:12px 20px;text-align:center">
+    <a href="#" onclick="toggleRows('tbl-metrics',this);return false" style="color:#3B82F6;text-decoration:none;font-size:13px">Show all ({{ market_metrics|length }})</a>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -471,6 +487,14 @@ async function runSonnetAnalysis(){
     else{result.textContent='Error: '+(data.error||'Unknown error');result.style.color='#EF4444'}
   }catch(e){result.textContent='Request failed: '+e.message;result.style.color='#EF4444'}
   btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
+}
+
+function toggleRows(tableId, link){
+  var tbl=document.getElementById(tableId);
+  var hidden=tbl.querySelectorAll('.hidden-row');
+  var showing=hidden.length>0 && hidden[0].style.display!=='none';
+  hidden.forEach(function(r){r.style.display=showing?'none':'';});
+  link.textContent=showing?'Show all ('+hidden.length+')':'Show less';
 }
 </script>
 {% endblock %}

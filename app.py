@@ -5,6 +5,7 @@ import json
 import hmac
 import hashlib
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response, Cookie
@@ -25,7 +26,16 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("dashboard")
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(application):
+    global _db
+    _db = Database(os.getenv("DATABASE_URL"))
+    await _db.init()
+    log.info(f"[DASHBOARD] Ready on port {os.getenv('PORT', '3000')}")
+    yield
+    await _db.close()
+
+app = FastAPI(lifespan=lifespan)
 import jinja2 as _jinja2
 _env = _jinja2.Environment(
     loader=_jinja2.FileSystemLoader("templates"),
@@ -387,6 +397,11 @@ async def arbitrage(request: Request, page: int = 1):
         return HTMLResponse(f"<h1>Arbitrage Error</h1><pre>{e}</pre>", status_code=500)
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+
 # ── API ──
 
 @app.get("/api")
@@ -395,7 +410,7 @@ async def api_stats():
         stats = await _db.get_stats()
         open_ = await _db.get_open_positions()
         closed = await _db.get_closed_positions(limit=5)
-        return JSONResponse({"stats": stats, "open": len(open_), "recent": len(closed)})
+        return Response(to_json({"stats": stats, "open": len(open_), "recent": len(closed)}), media_type="application/json")
     except Exception as e:
         log.warning(f"[DASHBOARD] API error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -487,16 +502,6 @@ Reply in English, max 500 words. Use plain text (no markdown).""",
     except Exception as e:
         log.error(f"[DASHBOARD] Analysis error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
-
-
-# ── Lifecycle ──
-
-@app.on_event("startup")
-async def startup():
-    global _db
-    _db = Database(os.getenv("DATABASE_URL"))
-    await _db.init()
-    log.info(f"[DASHBOARD] Ready on port {os.getenv('PORT', '3000')}")
 
 
 if __name__ == "__main__":
