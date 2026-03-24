@@ -242,6 +242,30 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         return HTMLResponse(f"<h1>Dashboard Error</h1><pre>{e}</pre>", status_code=500)
 
 
+# ── Trader Commands ──
+
+@app.post("/api/commands/close", response_class=JSONResponse)
+async def cmd_close_position(request: Request):
+    """Insert a close_position command into trader_commands table."""
+    try:
+        body = await request.json()
+        position_id = body.get("position_id")
+        if not position_id:
+            return JSONResponse({"error": "position_id required"}, status_code=400)
+        async with _db.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                INSERT INTO trader_commands (command, position_id, params)
+                VALUES ('close_position', $1, '{}')
+                RETURNING id
+            """, position_id)
+            # NOTIFY for instant pickup by engine
+            await conn.execute("NOTIFY trader_commands, $1", str(row["id"]))
+        return JSONResponse({"ok": True, "command_id": row["id"]})
+    except Exception as e:
+        log.error(f"[CMD] close command failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ── Analytics ──
 
 @app.get("/analytics", response_class=HTMLResponse)

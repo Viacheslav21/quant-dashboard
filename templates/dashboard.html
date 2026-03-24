@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Quant Engine v3{% endblock %}
 {% block footer_mode %}{{ mode }} Mode{% endblock %}
+{% block extra_css %}
+.btn-close-pos{background:transparent;border:1px solid #EF4444;color:#EF4444;width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;transition:all 0.15s;padding:0}
+.btn-close-pos:hover{background:#EF4444;color:#fff}
+.btn-close-pos.loading{opacity:0.4;pointer-events:none}
+.btn-close-pos.done{border-color:#10B981;color:#10B981;pointer-events:none}
+{% endblock %}
 
 {% block content %}
 <div class="grid">
@@ -105,7 +111,10 @@
       <td class="num ev">+{{ "%.1f"|format(p.ev * 100) }}%</td>
       <td class="num kl">{{ "%.3f"|format(p.kl) }}</td>
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
-      <td><a href="{{ p.url }}" target="_blank" class="link-arrow">&#8599;</a></td>
+      <td style="display:flex;gap:6px;align-items:center">
+        <a href="{{ p.url }}" target="_blank" class="link-arrow">&#8599;</a>
+        <button class="btn-close-pos" data-id="{{ p.id }}" title="Закрыть позицию">&#10005;</button>
+      </td>
     </tr>
     {% else %}
     <tr><td colspan="9" class="empty">Нет открытых позиций</td></tr>
@@ -314,5 +323,35 @@ if(ddData.length > 0){
     }
   });
 }
+// Close position buttons
+document.querySelectorAll('.btn-close-pos').forEach(btn => {
+  btn.addEventListener('click', async function(){
+    const id = this.dataset.id;
+    if(!confirm('Закрыть позицию ' + id + '?')) return;
+    this.classList.add('loading');
+    this.textContent = '...';
+    try {
+      const r = await fetch('/api/commands/close', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({position_id: id})
+      });
+      const d = await r.json();
+      if(d.ok){
+        this.classList.remove('loading');
+        this.classList.add('done');
+        this.textContent = '\u2713';
+        this.closest('tr').style.opacity = '0.4';
+      } else {
+        alert(d.error || 'Ошибка');
+        this.classList.remove('loading');
+        this.textContent = '\u2715';
+      }
+    } catch(e){
+      alert('Ошибка: ' + e.message);
+      this.classList.remove('loading');
+      this.textContent = '\u2715';
+    }
+  });
+});
 </script>
 {% endblock %}

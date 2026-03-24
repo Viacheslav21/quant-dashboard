@@ -37,6 +37,22 @@ class Database:
 
     async def init(self):
         self.pool = await asyncpg.create_pool(self.url, min_size=2, max_size=10, command_timeout=30)
+        # Ensure trader_commands table exists (dashboard writes to it)
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS trader_commands (
+                    id BIGSERIAL PRIMARY KEY,
+                    command TEXT NOT NULL,
+                    position_id TEXT,
+                    params JSONB DEFAULT '{}',
+                    status TEXT DEFAULT 'pending',
+                    result JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    executed_at TIMESTAMPTZ
+                );
+                CREATE INDEX IF NOT EXISTS idx_trader_commands_status
+                    ON trader_commands(status) WHERE status='pending';
+            """)
         log.info("[DB] Dashboard connected to shared database")
 
     async def get_stats(self) -> dict:
