@@ -613,7 +613,7 @@ class Database:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT id, market_id, question, theme, side, entry_price, current_price,
-                       unrealized_pnl, stake_amt, sl_pct, end_date, opened_at
+                       unrealized_pnl, stake_amt, sl_pct, end_date, opened_at, url
                 FROM micro_positions WHERE status='open' ORDER BY opened_at DESC
             """)
             return _clean_list(rows)

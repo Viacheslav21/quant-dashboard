@@ -50,23 +50,25 @@
   <table>
     <tr>
       <th class="sortable">Market</th><th class="sortable">Side</th><th class="sortable">Entry</th>
-      <th class="sortable">Current</th><th class="sortable">uPnL</th><th class="sortable">SL</th>
+      <th class="sortable">Current</th><th class="sortable">uPnL</th><th class="sortable">Pot. Profit</th><th class="sortable">SL</th>
       <th class="sortable">Stake</th><th class="sortable">Theme</th><th class="sortable">Expires</th>
     </tr>
     {% for p in open_positions %}
     <tr>
-      <td class="q">{{ p.question[:70] }}...</td>
+      <td class="q">{% if p.url %}<a href="{{ p.url }}" target="_blank" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px">{{ p.question[:70] }}...</a>{% else %}{{ p.question[:70] }}...{% endif %}</td>
       <td class="{{ 'yes' if p.side == 'YES' else 'no' }}">{{ p.side }}</td>
       <td class="num">{{ "%.1f"|format(p.entry_price * 100) }}&#162;</td>
       <td class="num">{{ "%.1f"|format((p.current_price or p.entry_price) * 100) }}&#162;</td>
       <td class="num" style="color:{{ pc(p.unrealized_pnl or 0) }}">{{ "%+.2f"|format(p.unrealized_pnl or 0) }}$</td>
+      {% set pot = (p.stake_amt / p.entry_price - p.stake_amt) if p.entry_price and p.entry_price > 0 else 0 %}
+      <td class="num" style="color:#10B981">+{{ "%.2f"|format(pot) }}$</td>
       <td class="num">{{ "%.0f"|format((p.sl_pct or 0.05) * 100) }}%</td>
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
       <td class="source">{{ p.theme or '?' }}</td>
       <td class="num">{{ p.end_date[:10] if p.end_date else '?' }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="9" class="empty">No open positions</td></tr>
+    <tr><td colspan="10" class="empty">No open positions</td></tr>
     {% endfor %}
   </table>
 </div>
