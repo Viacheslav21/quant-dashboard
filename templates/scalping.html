@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}Scalping Dashboard{% endblock %}
+{% block header_title %}Micro Scalper{% endblock %}
+{% block dot_color %}cyan{% endblock %}
+{% block footer_mode %}Scalping (micro-v4){% endblock %}
+
+{% block content %}
+<div class="grid">
+  <div class="card">
+    <div class="label">Bankroll</div>
+    <div class="value num" style="color:{{ pc(roi) }}">${{ "%.2f"|format(stats.bankroll) }}</div>
+    <div class="sub">Start: ${{ "%.0f"|format(micro_bankroll) }} | ROI: {{ "%+.1f"|format(roi) }}%</div>
+  </div>
+  <div class="card">
+    <div class="label">P&amp;L</div>
+    <div class="value num" style="color:{{ pc(stats.total_pnl) }}">{{ "%+.2f"|format(stats.total_pnl) }}$</div>
+    <div class="sub">{{ stats.total_trades }} trades | Peak: ${{ "%.2f"|format(stats.peak_equity) }}</div>
+  </div>
+  <div class="card">
+    <div class="label">Win Rate</div>
+    <div class="value num" style="color:{{ '#3B82F6' if wr >= 50 else '#EF4444' }}">{{ wr }}%</div>
+    <div class="sub">{{ stats.wins }}W / {{ stats.losses }}L</div>
+  </div>
+  <div class="card">
+    <div class="label">Open</div>
+    <div class="value num" style="color:#F59E0B">{{ open_positions|length }}</div>
+    <div class="sub">uPnL: <span style="color:{{ pc(open_total_upnl) }}">{{ "%+.2f"|format(open_total_upnl) }}$</span> | Avg hold: {{ "%.1f"|format(data.avg_lifetime_hours) }}h</div>
+  </div>
+</div>
+
+<!-- Cumulative PnL -->
+<div class="panel" style="padding:20px;margin-bottom:20px">
+  <div class="panel-header" style="padding:0 0 12px 0"><h2>Cumulative P&amp;L</h2></div>
+  <div style="height:250px"><canvas id="pnlChart"></canvas></div>
+</div>
+
+<!-- Open positions -->
+<div class="panel">
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <h2>Open Positions</h2>
+      <span class="count">{{ open_positions|length }}</span>
+    </div>
+    <div style="display:flex;gap:16px;font-size:13px;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace">
+      <span style="color:#10B981" title="In profit">+{{ open_in_profit }}</span>
+      <span style="color:#6B7280">/</span>
+      <span style="color:#EF4444" title="In loss">-{{ open_in_loss }}</span>
+    </div>
+  </div>
+  <table>
+    <tr>
+      <th class="sortable">Market</th><th class="sortable">Side</th><th class="sortable">Entry</th>
+      <th class="sortable">Current</th><th class="sortable">uPnL</th><th class="sortable">SL</th>
+      <th class="sortable">Stake</th><th class="sortable">Theme</th><th class="sortable">Expires</th>
+    </tr>
+    {% for p in open_positions %}
+    <tr>
+      <td class="q">{{ p.question[:70] }}...</td>
+      <td class="{{ 'yes' if p.side == 'YES' else 'no' }}">{{ p.side }}</td>
+      <td class="num">{{ "%.1f"|format(p.entry_price * 100) }}&#162;</td>
+      <td class="num">{{ "%.1f"|format((p.current_price or p.entry_price) * 100) }}&#162;</td>
+      <td class="num" style="color:{{ pc(p.unrealized_pnl or 0) }}">{{ "%+.2f"|format(p.unrealized_pnl or 0) }}$</td>
+      <td class="num">{{ "%.0f"|format((p.sl_pct or 0.05) * 100) }}%</td>
+      <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
+      <td class="source">{{ p.theme or '?' }}</td>
+      <td class="num">{{ p.end_date[:10] if p.end_date else '?' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="empty">No open positions</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- Analytics tables -->
+<div class="two-col">
+  <div class="panel">
+    <div class="panel-header"><h2>By Theme</h2></div>
+    <table>
+      <tr><th class="sortable">Theme</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th><th class="sortable">Total PnL</th></tr>
+      {% for r in data.by_theme %}
+      <tr>
+        <td>{{ r.theme }}</td>
+        <td class="num">{{ r.total }}</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
+        <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">No data</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>By Close Reason</h2></div>
+    <table>
+      <tr><th class="sortable">Reason</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
+      {% for r in data.by_reason %}
+      <tr>
+        <td>{{ r.reason }}</td>
+        <td class="num">{{ r.total }}</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">No data</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="panel">
+    <div class="panel-header"><h2>By Side</h2></div>
+    <table>
+      <tr><th class="sortable">Side</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
+      {% for r in data.by_side %}
+      <tr>
+        <td class="{{ 'yes' if r.side == 'YES' else 'no' }}">{{ r.side }}</td>
+        <td class="num">{{ r.total }}</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">No data</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Daily P&amp;L (14d)</h2></div>
+    <table>
+      <tr><th class="sortable">Date</th><th class="sortable">Trades</th><th class="sortable">Win Rate</th><th class="sortable">P&amp;L</th></tr>
+      {% for r in data.daily_pnl %}
+      <tr>
+        <td>{{ r.day }}</td>
+        <td class="num">{{ r.trades }}</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.trades) }}">{{ r.wins }}/{{ r.trades }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ pc(r.pnl|float) }}">{{ "%+.2f"|format(r.pnl|float) }}$</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">No data</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<!-- Closed history -->
+<div class="panel">
+  <div class="panel-header">
+    <h2>Trade History</h2>
+    <span class="count">{{ total_closed }}</span>
+  </div>
+  <table>
+    <tr>
+      <th class="sortable">Market</th><th class="sortable">Side</th><th class="sortable">Entry&rarr;Exit</th>
+      <th class="sortable">Close</th><th class="sortable">P&amp;L</th><th class="sortable">Result</th>
+      <th class="sortable">Theme</th><th class="sortable">Time</th>
+    </tr>
+    {% for t in closed %}
+    <tr>
+      <td class="q">{{ t.question[:60] }}...</td>
+      <td class="{{ 'yes' if t.side == 'YES' else 'no' }}">{{ t.side }}</td>
+      <td class="num">{{ "%.1f"|format(t.entry_price * 100) }}&#162;&rarr;{{ "%.1f"|format((t.current_price or t.entry_price) * 100) }}&#162;</td>
+      <td class="num">{{ t.close_reason or '?' }}</td>
+      <td class="num" style="color:{{ pc(t.pnl or 0) }}">{{ "%+.2f"|format(t.pnl or 0) }}$</td>
+      <td><span class="badge {{ 'win' if t.result == 'WIN' else 'loss' }}">{{ t.result }}</span></td>
+      <td class="source">{{ t.theme or '?' }}</td>
+      <td class="num">{{ t.closed_at.strftime('%m/%d %H:%M') if t.closed_at else '?' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="empty">No trades yet</td></tr>
+    {% endfor %}
+  </table>
+  {% if total_pages > 1 %}
+  <div style="padding:16px;text-align:center">
+    {% for p_num in range(1, total_pages + 1) %}
+      {% if p_num == page %}
+        <span style="color:#3B82F6;font-weight:600;margin:0 4px">{{ p_num }}</span>
+      {% else %}
+        <a href="/scalping?page={{ p_num }}" style="color:#6B7280;text-decoration:none;margin:0 4px">{{ p_num }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const pnlData = {{ pnl_data|safe }};
+if(pnlData.length > 0){
+  new Chart(document.getElementById('pnlChart'),{
+    type:'line',
+    data:{
+      labels:pnlData.map(d=>new Date(d.t).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})),
+      datasets:[{
+        label:'Cumulative P&L',data:pnlData.map(d=>d.cum),
+        borderColor:pnlData[pnlData.length-1].cum>=0?'#06B6D4':'#EF4444',
+        backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:2
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#6B7280',maxTicksLimit:10},grid:{color:'#1F2937'}},
+        y:{ticks:{color:'#6B7280',callback:v=>'$'+v.toFixed(2)},grid:{color:'#1F2937'}}
+      }
+    }
+  });
+}
+</script>
+{% endblock %}
