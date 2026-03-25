@@ -356,45 +356,44 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         return HTMLResponse(f"<h1>Analytics Error</h1><pre>{e}</pre>", status_code=500)
 
 
-# ── Arbitrage ──
+# ── Scalping (micro) ──
 
-@app.get("/arbitrage", response_class=HTMLResponse)
-async def arbitrage(request: Request, page: int = 1):
+@app.get("/scalping", response_class=HTMLResponse)
+async def scalping(request: Request, page: int = 1):
     try:
         per_page = 20
-        stats = await _db.get_arb_stats()
-        open_ = await _db.get_arb_open_positions()
+        stats = await _db.get_micro_stats()
+        open_ = await _db.get_micro_open_positions()
         total_closed = stats["wins"] + stats["losses"]
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
-        closed = await _db.get_arb_closed_positions(limit=per_page, offset=(page - 1) * per_page)
-        signals = await _db.get_arb_signals(limit=20)
-        pnl_data = await _db.get_arb_cumulative_pnl()
-        data = await _db.get_arb_analytics()
+        closed = await _db.get_micro_closed_positions(limit=per_page, offset=(page - 1) * per_page)
+        pnl_data = await _db.get_micro_cumulative_pnl()
+        data = await _db.get_micro_analytics()
 
-        arb_bankroll = _config["BANKROLL"]
-        roi = ((stats["bankroll"] - arb_bankroll) / arb_bankroll * 100) if arb_bankroll > 0 else 0
+        micro_bankroll = 500.0  # starting bankroll
+        roi = ((stats["bankroll"] - micro_bankroll) / micro_bankroll * 100) if micro_bankroll > 0 else 0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
 
-        arb_open_in_profit = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) >= 0)
-        arb_open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
-        arb_open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
+        open_in_profit = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) >= 0)
+        open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
+        open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse(request, "arbitrage.html", _ctx(
-            active_page="arbitrage",
+        return templates.TemplateResponse(request, "scalping.html", _ctx(
+            active_page="scalping",
             stats=stats, roi=roi, wr=wr, total=total,
-            arb_bankroll=arb_bankroll,
+            micro_bankroll=micro_bankroll,
             open_positions=open_, closed=closed,
-            signals=signals, data=data,
-            arb_open_in_profit=arb_open_in_profit,
-            arb_open_in_loss=arb_open_in_loss,
-            arb_open_total_upnl=arb_open_total_upnl,
+            data=data,
+            open_in_profit=open_in_profit,
+            open_in_loss=open_in_loss,
+            open_total_upnl=open_total_upnl,
             total_closed=total_closed, page=page, total_pages=total_pages,
             pnl_data=to_json(pnl_data),
         ))
     except Exception as e:
-        log.error(f"[DASHBOARD] Arbitrage error: {e}", exc_info=True)
-        return HTMLResponse(f"<h1>Arbitrage Error</h1><pre>{e}</pre>", status_code=500)
+        log.error(f"[DASHBOARD] Scalping error: {e}", exc_info=True)
+        return HTMLResponse(f"<h1>Scalping Error</h1><pre>{e}</pre>", status_code=500)
 
 
 @app.get("/favicon.ico")

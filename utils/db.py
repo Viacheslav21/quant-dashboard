@@ -592,6 +592,96 @@ class Database:
             "daily_pnl": _clean_list(daily_pnl),
         }
 
+    # ── Micro (scalping) tables (read-only) ──
+
+    async def get_micro_stats(self) -> dict:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT bankroll, total_pnl, wins, losses, total_trades, peak_equity FROM micro_stats WHERE id=1")
+            if row:
+                r = _clean(row)
+                return {
+                    "bankroll": float(r.get("bankroll") or 0),
+                    "total_pnl": float(r.get("total_pnl") or 0),
+                    "wins": int(r.get("wins") or 0),
+                    "losses": int(r.get("losses") or 0),
+                    "total_trades": int(r.get("total_trades") or 0),
+                    "peak_equity": float(r.get("peak_equity") or 0),
+                }
+            return {"bankroll": 0.0, "total_pnl": 0.0, "wins": 0, "losses": 0, "total_trades": 0, "peak_equity": 0.0}
+
+    async def get_micro_open_positions(self) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, market_id, question, theme, side, entry_price, current_price,
+                       unrealized_pnl, stake_amt, sl_pct, end_date, opened_at
+                FROM micro_positions WHERE status='open' ORDER BY opened_at DESC
+            """)
+            return _clean_list(rows)
+
+    async def get_micro_closed_positions(self, limit: int = 100, offset: int = 0) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, question, theme, side, entry_price, current_price, pnl, result,
+                       close_reason, stake_amt, sl_pct, opened_at, closed_at
+                FROM micro_positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1 OFFSET $2
+            """, limit, offset)
+            return _clean_list(rows)
+
+    async def get_micro_cumulative_pnl(self) -> list:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT closed_at, pnl,
+                    SUM(pnl) OVER (ORDER BY closed_at) as cumulative
+                FROM micro_positions
+                WHERE status='closed' AND closed_at IS NOT NULL
+                ORDER BY closed_at ASC
+            """)
+            return [{"t": r["closed_at"].isoformat(), "pnl": float(r["pnl"]), "cum": float(r["cumulative"])} for r in rows]
+
+    async def get_micro_analytics(self) -> dict:
+        async with self.pool.acquire() as conn:
+            by_theme = await conn.fetch("""
+                SELECT theme, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                FROM micro_positions WHERE status='closed' AND theme IS NOT NULL
+                GROUP BY theme ORDER BY total DESC
+            """)
+            by_reason = await conn.fetch("""
+                SELECT close_reason as reason, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM micro_positions WHERE status='closed' AND close_reason IS NOT NULL
+                GROUP BY close_reason ORDER BY total DESC
+            """)
+            by_side = await conn.fetch("""
+                SELECT side, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM micro_positions WHERE status='closed'
+                GROUP BY side
+            """)
+            avg_lifetime = await conn.fetchrow("""
+                SELECT ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600)::numeric, 1) as avg_hours
+                FROM micro_positions WHERE status='closed' AND closed_at IS NOT NULL
+            """)
+            daily_pnl = await conn.fetch("""
+                SELECT DATE(closed_at) as day,
+                    ROUND(SUM(pnl)::numeric, 2) as pnl,
+                    COUNT(*) as trades,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins
+                FROM micro_positions WHERE status='closed' AND closed_at IS NOT NULL
+                GROUP BY day ORDER BY day DESC LIMIT 14
+            """)
+        return {
+            "by_theme": _clean_list(by_theme),
+            "by_reason": _clean_list(by_reason),
+            "by_side": _clean_list(by_side),
+            "avg_lifetime_hours": float(avg_lifetime["avg_hours"] or 0) if avg_lifetime else 0.0,
+            "daily_pnl": _clean_list(daily_pnl),
+        }
+
     async def close(self):
         if self.pool:
             await self.pool.close()
