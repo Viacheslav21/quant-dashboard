@@ -437,6 +437,17 @@ async def export_positions(date_from: str = None, date_to: str = None):
     )
 
 
+@app.get("/api/diagnostics")
+async def api_diagnostics():
+    """Deep WR diagnostics — close reasons, avg win/loss, EV/Kelly/lifetime/stake buckets."""
+    try:
+        diag = await _db.get_wr_diagnostics()
+        return Response(to_json(diag), media_type="application/json")
+    except Exception as e:
+        log.warning(f"[DASHBOARD] Diagnostics error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/run-analysis")
 async def run_analysis(request: Request):
     """Run Sonnet analysis on demand via dashboard button."""

@@ -346,6 +346,155 @@ class Database:
             rows = await conn.fetch(query, *params)
             return _clean_list(rows)
 
+    # ── Win Rate Diagnostics ──
+
+    async def get_wr_diagnostics(self) -> dict:
+        """Deep WR diagnostics: close reasons from trade_log, avg win/loss, EV buckets, trailing analysis."""
+        async with self.pool.acquire() as conn:
+            # 1. Exact close reasons from trade_log (CLOSE_TP, CLOSE_SL, CLOSE_TRAILING_TP, CLOSE_RESOLVED, CLOSE_MANUAL)
+            close_reasons = await conn.fetch("""
+                SELECT event_type, COUNT(*) as total,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl,
+                    ROUND(AVG(stake_amt)::numeric, 2) as avg_stake,
+                    ROUND(AVG(pnl_pct)::numeric, 4) as avg_pnl_pct
+                FROM trade_log
+                WHERE event_type IN ('CLOSE_TP', 'CLOSE_SL', 'CLOSE_TRAILING_TP', 'CLOSE_RESOLVED', 'CLOSE_MANUAL')
+                GROUP BY event_type ORDER BY total DESC
+            """)
+
+            # 2. Average win size vs average loss size
+            win_loss_size = await conn.fetchrow("""
+                SELECT
+                    ROUND(AVG(CASE WHEN result='WIN' THEN pnl END)::numeric, 2) as avg_win,
+                    ROUND(AVG(CASE WHEN result='LOSS' THEN pnl END)::numeric, 2) as avg_loss,
+                    ROUND(AVG(CASE WHEN result='WIN' THEN pnl/NULLIF(stake_amt,0) END)::numeric, 4) as avg_win_pct,
+                    ROUND(AVG(CASE WHEN result='LOSS' THEN pnl/NULLIF(stake_amt,0) END)::numeric, 4) as avg_loss_pct,
+                    COUNT(CASE WHEN result='WIN' THEN 1 END) as wins,
+                    COUNT(CASE WHEN result='LOSS' THEN 1 END) as losses
+                FROM positions WHERE status='closed' AND stake_amt > 0
+            """)
+
+            # 3. WR by EV bucket at entry
+            ev_buckets = await conn.fetch("""
+                SELECT
+                    CASE
+                        WHEN ev < 0.15 THEN '12-15%'
+                        WHEN ev < 0.20 THEN '15-20%'
+                        WHEN ev < 0.30 THEN '20-30%'
+                        WHEN ev < 0.50 THEN '30-50%'
+                        ELSE '50%+'
+                    END as ev_bucket,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                FROM positions WHERE status='closed' AND ev IS NOT NULL
+                GROUP BY ev_bucket ORDER BY ev_bucket
+            """)
+
+            # 4. WR by Kelly bucket at entry
+            kelly_buckets = await conn.fetch("""
+                SELECT
+                    CASE
+                        WHEN kelly < 0.02 THEN '1-2%'
+                        WHEN kelly < 0.04 THEN '2-4%'
+                        WHEN kelly < 0.06 THEN '4-6%'
+                        ELSE '6%+'
+                    END as kelly_bucket,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                FROM positions WHERE status='closed' AND kelly IS NOT NULL
+                GROUP BY kelly_bucket ORDER BY kelly_bucket
+            """)
+
+            # 5. Trailing TP analysis — positions that had high pnl_pct but closed via SL
+            missed_tp = await conn.fetchrow("""
+                SELECT COUNT(*) as count,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM trade_log
+                WHERE event_type = 'CLOSE_SL'
+            """)
+
+            # 6. WR by position lifetime bucket
+            lifetime_wr = await conn.fetch("""
+                SELECT
+                    CASE
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600 < 1 THEN '<1h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600 < 6 THEN '1-6h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600 < 24 THEN '6-24h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600 < 72 THEN '1-3d'
+                        ELSE '3d+'
+                    END as lifetime,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM positions WHERE status='closed' AND closed_at IS NOT NULL AND opened_at IS NOT NULL
+                GROUP BY lifetime ORDER BY MIN(EXTRACT(EPOCH FROM (closed_at - opened_at)))
+            """)
+
+            # 7. WR by stake size bucket
+            stake_wr = await conn.fetch("""
+                SELECT
+                    CASE
+                        WHEN stake_amt < 5 THEN '<$5'
+                        WHEN stake_amt < 10 THEN '$5-10'
+                        WHEN stake_amt < 20 THEN '$10-20'
+                        WHEN stake_amt < 50 THEN '$20-50'
+                        ELSE '$50+'
+                    END as stake_bucket,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                FROM positions WHERE status='closed'
+                GROUP BY stake_bucket ORDER BY MIN(stake_amt)
+            """)
+
+            # 8. WR trend — last 7 days daily WR
+            daily_wr = await conn.fetch("""
+                SELECT DATE(closed_at) as day,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(SUM(pnl)::numeric, 2) as pnl,
+                    ROUND(AVG(pnl/NULLIF(stake_amt,0))::numeric, 4) as avg_return_pct
+                FROM positions WHERE status='closed' AND closed_at >= NOW() - INTERVAL '14 days'
+                GROUP BY day ORDER BY day DESC
+            """)
+
+            # 9. TP/SL settings distribution on closed positions
+            tp_sl_dist = await conn.fetch("""
+                SELECT
+                    ROUND(tp_pct::numeric, 2) as tp,
+                    ROUND(sl_pct::numeric, 2) as sl,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                FROM positions WHERE status='closed' AND tp_pct IS NOT NULL AND sl_pct IS NOT NULL
+                GROUP BY tp, sl ORDER BY total DESC LIMIT 10
+            """)
+
+            # 10. Breakeven WR needed for current avg win/loss
+            wl = _clean(win_loss_size) if win_loss_size else {}
+            avg_win_pct = abs(float(wl.get("avg_win_pct") or 0))
+            avg_loss_pct = abs(float(wl.get("avg_loss_pct") or 0))
+            breakeven_wr = round(avg_loss_pct / (avg_win_pct + avg_loss_pct) * 100, 1) if (avg_win_pct + avg_loss_pct) > 0 else 50.0
+
+            return {
+                "close_reasons": _clean_list(close_reasons),
+                "win_loss_size": _clean(win_loss_size) if win_loss_size else {},
+                "breakeven_wr": breakeven_wr,
+                "ev_buckets": _clean_list(ev_buckets),
+                "kelly_buckets": _clean_list(kelly_buckets),
+                "missed_tp": _clean(missed_tp) if missed_tp else {},
+                "lifetime_wr": _clean_list(lifetime_wr),
+                "stake_wr": _clean_list(stake_wr),
+                "daily_wr": _clean_list(daily_wr),
+                "tp_sl_dist": _clean_list(tp_sl_dist),
+            }
+
     # ── Arbitrage tables (read-only) ──
 
     async def get_arb_stats(self) -> dict:
