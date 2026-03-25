@@ -113,6 +113,7 @@
       <th class="sortable" title="KL-дивергенция">KL</th>
       <th class="sortable" title="Размер ставки">Ставка</th>
       <th class="sortable" title="Дата открытия">Открыта</th>
+      <th class="sortable" title="Версия конфига">Tag</th>
       <th></th>
     </tr>
     {% for p in open_positions %}
@@ -128,6 +129,7 @@
       <td class="num kl">{{ "%.3f"|format(p.kl) }}</td>
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
       <td class="num" style="color:#6B7280;font-size:11px">{{ p.opened_at.strftime('%d.%m %H:%M') if p.opened_at else '—' }}</td>
+      <td class="num" style="color:#6B7280;font-size:11px">{{ p.config_tag or '—' }}</td>
       <td>
         <div style="display:flex;gap:6px;align-items:center">
         <a href="{{ p.url }}" target="_blank" class="link-arrow">&#8599;</a>
@@ -143,7 +145,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="10" class="empty">Нет открытых позиций</td></tr>
+    <tr><td colspan="12" class="empty">Нет открытых позиций</td></tr>
     {% endfor %}
   </table>
 </div>

@@ -75,7 +75,7 @@ class Database:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT id, market_id, question, side, side_price, current_price,
-                       unrealized_pnl, ev, kl, stake_amt, url, opened_at, theme
+                       unrealized_pnl, ev, kl, stake_amt, url, opened_at, theme, config_tag
                 FROM positions WHERE status='open' ORDER BY opened_at DESC
             """)
             return _clean_list(rows)
