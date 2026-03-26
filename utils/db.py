@@ -120,7 +120,7 @@ class Database:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT id, market_id, question, side, side_price, p_market, p_final,
-                       ev, kl, kelly, source, executed, created_at
+                       p_claude as p_ml, ev, kl, kelly, source, executed, created_at
                 FROM signals ORDER BY created_at DESC LIMIT $1
             """, limit)
             return _clean_list(rows)
