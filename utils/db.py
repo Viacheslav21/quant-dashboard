@@ -82,8 +82,8 @@ class Database:
 
     async def get_closed_positions(self, limit: int = 100, offset: int = 0, date_from=None, date_to=None) -> list:
         async with self.pool.acquire() as conn:
-            query = """SELECT id, question, side, side_price, current_price, outcome,
-                              pnl, result, ev, kl, stake_amt, opened_at, closed_at, theme, config_tag
+            query = """SELECT id, market_id, question, side, side_price, current_price, outcome,
+                              pnl, result, ev, kl, stake_amt, url, opened_at, closed_at, theme, config_tag
                        FROM positions WHERE status='closed'"""
             params = []
             idx = 1

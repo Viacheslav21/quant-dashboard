@@ -262,7 +262,7 @@
     </tr>
     {% for t in closed %}
     <tr>
-      <td class="q">{{ t.question[:60] }}...</td>
+      <td class="q">{% if t.url %}<a href="{{ t.url }}" target="_blank" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px">{{ t.question[:60] }}...</a>{% else %}{{ t.question[:60] }}...{% endif %}</td>
       <td class="{{ 'yes' if t.side == 'YES' else 'no' }}">{{ t.side }}</td>
       <td class="num">{{ "%.1f"|format(t.side_price * 100) }}&#162;</td>
       <td class="num" style="font-size:11px">{{ t.theme or '—' }}</td>
