@@ -438,11 +438,53 @@ async def model_page(request: Request):
             active_page="model",
             health=health_data,
             metrics=metrics,
-            ml_api_url=ml_url,
         ))
     except Exception as e:
         log.error(f"[DASHBOARD] Model page error: {e}", exc_info=True)
         return HTMLResponse(f"<h1>Model Error</h1><pre>{e}</pre>", status_code=500)
+
+
+# ── ML API Proxy (browser can't reach internal Railway URLs) ──
+
+@app.post("/api/ml/train")
+async def proxy_ml_train():
+    import httpx
+    ml_url = _config.get("ML_API_URL") or os.getenv("ML_API_URL", "")
+    if not ml_url:
+        return JSONResponse({"error": "ML_API_URL not configured"}, status_code=500)
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(f"{ml_url}/api/train")
+        return JSONResponse(r.json(), status_code=r.status_code)
+
+@app.post("/api/ml/train-only")
+async def proxy_ml_train_only():
+    import httpx
+    ml_url = _config.get("ML_API_URL") or os.getenv("ML_API_URL", "")
+    if not ml_url:
+        return JSONResponse({"error": "ML_API_URL not configured"}, status_code=500)
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(f"{ml_url}/api/train-only")
+        return JSONResponse(r.json(), status_code=r.status_code)
+
+@app.get("/api/ml/training-status")
+async def proxy_ml_status():
+    import httpx
+    ml_url = _config.get("ML_API_URL") or os.getenv("ML_API_URL", "")
+    if not ml_url:
+        return JSONResponse({"error": "ML_API_URL not configured"}, status_code=500)
+    async with httpx.AsyncClient(timeout=5) as client:
+        r = await client.get(f"{ml_url}/api/training-status")
+        return JSONResponse(r.json())
+
+@app.get("/api/ml/health")
+async def proxy_ml_health():
+    import httpx
+    ml_url = _config.get("ML_API_URL") or os.getenv("ML_API_URL", "")
+    if not ml_url:
+        return JSONResponse({"error": "ML_API_URL not configured"}, status_code=500)
+    async with httpx.AsyncClient(timeout=5) as client:
+        r = await client.get(f"{ml_url}/health")
+        return JSONResponse(r.json())
 
 
 @app.get("/favicon.ico")

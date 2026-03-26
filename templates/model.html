@@ -100,21 +100,24 @@
 
 {% block scripts %}
 <script>
-const ML_API = '{{ ml_api_url }}';
 let pollInterval = null;
 
 function startTraining(mode) {
-  const endpoint = mode === 'full' ? '/api/train' : '/api/train-only';
+  const endpoint = mode === 'full' ? '/api/ml/train' : '/api/ml/train-only';
   document.getElementById('btn-collect-train').disabled = true;
   document.getElementById('btn-train-only').disabled = true;
   document.getElementById('progress-panel').style.display = 'block';
   appendLog('Starting ' + (mode === 'full' ? 'collect + train' : 'train only') + '...');
 
-  fetch(ML_API + endpoint, {method: 'POST'})
+  fetch(endpoint, {method: 'POST'})
     .then(r => r.json())
     .then(d => {
-      appendLog(d.message || JSON.stringify(d));
-      pollInterval = setInterval(pollStatus, 3000);
+      appendLog(d.message || d.error || JSON.stringify(d));
+      if (!d.error) pollInterval = setInterval(pollStatus, 3000);
+      else {
+        document.getElementById('btn-collect-train').disabled = false;
+        document.getElementById('btn-train-only').disabled = false;
+      }
     })
     .catch(e => {
       appendLog('Error: ' + e);
@@ -124,7 +127,7 @@ function startTraining(mode) {
 }
 
 function pollStatus() {
-  fetch(ML_API + '/api/training-status')
+  fetch('/api/ml/training-status')
     .then(r => r.json())
     .then(d => {
       document.getElementById('ml-status').textContent = d.phase;
@@ -156,7 +159,7 @@ function appendLog(msg) {
 }
 
 // Initial status check
-fetch(ML_API + '/health').then(r=>r.json()).then(d => {
+fetch('/api/ml/health').then(r=>r.json()).then(d => {
   document.getElementById('ml-status').textContent = d.status;
   document.getElementById('ml-status').style.color = d.model_loaded ? '#10B981' : '#EF4444';
   document.getElementById('ml-samples').textContent = d.training_samples;
