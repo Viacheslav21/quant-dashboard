@@ -304,6 +304,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         equity = compute_equity_curve(all_trades, start)
         pnl_dist = compute_pnl_distribution(all_trades)
         clv = await _db.get_clv_analytics()
+        dma_weights = await _db.get_dma_weights()
 
         ev_pred = data["ev_predicted"] * 100
         ev_act = data["ev_actual"] * 100
@@ -347,7 +348,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             sharpe=sharpe, drawdown=drawdown,
             rolling=rolling, best_worst=best_worst,
             exec_right=exec_right, exec_total=len(exec_sigs),
-            rej_right=rej_right, rej_saved=rej_saved, clv=clv,
+            rej_right=rej_right, rej_saved=rej_saved, clv=clv, dma_weights=dma_weights,
             date_from=date_from, date_to=date_to,
             has_api_secret=_check_api_secret(request),
             api_secret_required=bool(API_SECRET),

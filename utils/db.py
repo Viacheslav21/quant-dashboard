@@ -550,6 +550,17 @@ class Database:
                            for t, v in sorted(by_tag.items(), key=lambda x: -len(x[1]))],
             }
 
+    # ── DMA Weights ──
+
+    async def get_dma_weights(self) -> list:
+        """Get current DMA weights for dashboard display."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT source, weight, hits, misses, avg_likelihood, updated_at
+                FROM dma_weights ORDER BY weight DESC
+            """)
+            return _clean_list(rows)
+
     # ── Arbitrage tables (read-only) ──
 
     async def get_arb_stats(self) -> dict:

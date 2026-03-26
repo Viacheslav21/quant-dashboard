@@ -338,6 +338,33 @@
   </div>
 </div>
 
+<!-- DMA Weights -->
+<div class="panel">
+  <div class="panel-header"><h2>Evidence Source Weights (DMA)</h2><span class="count">{{ dma_weights|length }}</span></div>
+  {% if dma_weights %}
+  <table>
+    <tr><th>Source</th><th>Weight</th><th>Accuracy</th><th>Hits</th><th>Misses</th><th>Avg Likelihood</th></tr>
+    {% for w in dma_weights %}
+    <tr>
+      <td><b>{{ w.source }}</b></td>
+      <td class="num" style="color:{{ '#10B981' if w.weight >= 1.0 else '#EF4444' }}">
+        <span style="display:inline-block;width:{{ (w.weight * 50)|int }}px;height:12px;background:{{ '#10B981' if w.weight >= 1.0 else '#EF4444' }};border-radius:2px;vertical-align:middle;margin-right:6px"></span>
+        {{ "%.2f"|format(w.weight) }}x
+      </td>
+      <td class="num" style="color:{{ '#10B981' if (w.hits / (w.hits + w.misses) * 100 if (w.hits + w.misses) > 0 else 0) >= 50 else '#EF4444' }}">
+        {{ "%.0f"|format(w.hits / (w.hits + w.misses) * 100) if (w.hits + w.misses) > 0 else '—' }}%
+      </td>
+      <td class="num">{{ w.hits }}</td>
+      <td class="num">{{ w.misses }}</td>
+      <td class="num">{{ "%.3f"|format(w.avg_likelihood or 0) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color:#6B7280;padding:16px">DMA weights will appear after ~20 closed positions (recalculated every 4h)</p>
+  {% endif %}
+</div>
+
 <!-- Signal Backtest -->
 <div class="panel">
   <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
