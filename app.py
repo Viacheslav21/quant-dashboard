@@ -320,8 +320,12 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
                 except Exception:
                     params = {}
             param_str = (
-                f"EV≥{params.get('MIN_EV', '')} KL≥{params.get('MIN_KL', '')} "
-                f"Kelly:{params.get('MAX_KELLY_FRAC', '')} SL:{params.get('STOP_LOSS_PCT', '')}"
+                f"EV≥{params.get('MIN_EV', '')} KL≥{params.get('MIN_KL', '')} Edge≥{params.get('MIN_EDGE', '')} "
+                f"Kelly:{params.get('MIN_KELLY_FRAC', '')}–{params.get('MAX_KELLY_FRAC', '')} "
+                f"TP:{params.get('TAKE_PROFIT_PCT', '')} SL:{params.get('STOP_LOSS_PCT', '')} "
+                f"Trail:{params.get('TRAILING_TP', '')}/{params.get('TRAILING_PULLBACK', '')} "
+                f"MaxOpen:{params.get('MAX_OPEN', '')} MaxTheme:{params.get('MAX_PER_THEME', '')} "
+                f"Prospect:{'Y' if params.get('USE_PROSPECT') else 'N'}"
             ) if params else "—"
             config_rows.append({**r, "param_str": param_str})
 
@@ -397,6 +401,48 @@ async def scalping(request: Request, page: int = 1):
     except Exception as e:
         log.error(f"[DASHBOARD] Scalping error: {e}", exc_info=True)
         return HTMLResponse(f"<h1>Scalping Error</h1><pre>{e}</pre>", status_code=500)
+
+
+# ── ML Model ──
+
+@app.get("/model", response_class=HTMLResponse)
+async def model_page(request: Request):
+    try:
+        import httpx
+        ml_url = _config.get("ML_API_URL") or os.getenv("ML_API_URL", "")
+        health_data = {}
+        metrics = {}
+
+        if ml_url:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    r = await client.get(f"{ml_url}/health")
+                    health_data = r.json()
+            except Exception as e:
+                health_data = {"status": "offline", "error": str(e)}
+
+            # Get model metrics from DB
+            try:
+                async with _db.pool.acquire() as conn:
+                    row = await conn.fetchrow("SELECT metrics FROM ml_models WHERE id='main'")
+                    if row and row["metrics"]:
+                        m = row["metrics"]
+                        if isinstance(m, str):
+                            metrics = json.loads(m)
+                        else:
+                            metrics = dict(m)
+            except Exception:
+                pass
+
+        return templates.TemplateResponse(request, "model.html", _ctx(
+            active_page="model",
+            health=health_data,
+            metrics=metrics,
+            ml_api_url=ml_url,
+        ))
+    except Exception as e:
+        log.error(f"[DASHBOARD] Model page error: {e}", exc_info=True)
+        return HTMLResponse(f"<h1>Model Error</h1><pre>{e}</pre>", status_code=500)
 
 
 @app.get("/favicon.ico")
