@@ -487,6 +487,334 @@ async def proxy_ml_health():
         return JSONResponse(r.json())
 
 
+@app.get("/api/system-audit")
+async def system_audit():
+    """Full system audit — comprehensive data dump for analysis."""
+    try:
+        stats = await _db.get_stats()
+        open_pos = await _db.get_open_positions()
+        all_trades = await _db.get_all_closed_trades()
+        analytics = await _db.get_analytics()
+        diagnostics = await _db.get_wr_diagnostics()
+        clv = await _db.get_clv_analytics()
+        dma = await _db.get_dma_weights()
+        rolling = await _db.get_rolling_performance()
+        best_worst = await _db.get_best_worst_trades()
+        signals = await _db.get_recent_signals(limit=30)
+        sig_outcomes = await _db.get_signal_outcomes(limit=50)
+        market_metrics = await _db.get_all_market_metrics(limit=50)
+        config_hist = await _db.get_config_history()
+        start = _config["BANKROLL"]
+
+        sharpe = compute_sharpe_ratio(all_trades)
+        drawdown = compute_max_drawdown(all_trades, start)
+        streaks = compute_streaks(all_trades)
+
+        total = stats["wins"] + stats["losses"]
+        wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
+        roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
+
+        # Build text report
+        lines = []
+        lines.append("=" * 60)
+        lines.append("QUANT ENGINE — FULL SYSTEM AUDIT")
+        lines.append("=" * 60)
+
+        lines.append("\n## OVERVIEW")
+        lines.append(f"Bankroll: ${stats['bankroll']:.2f} (start: ${start:.0f})")
+        lines.append(f"ROI: {roi:+.2f}%")
+        lines.append(f"Total P&L: ${stats['total_pnl']:+.2f}")
+        lines.append(f"Win Rate: {wr}% ({stats['wins']}W / {stats['losses']}L / {total} total)")
+        lines.append(f"Sharpe Ratio: {sharpe:.2f}")
+        lines.append(f"Max Drawdown: -{drawdown['max_dd_pct']:.1f}% (${drawdown['max_dd_abs']:.2f})")
+        lines.append(f"Streaks — Current: {streaks['cur_win']}W/{streaks['cur_loss']}L | Max: {streaks['max_win']}W/{streaks['max_loss']}L")
+        lines.append(f"Avg EV: +{stats['avg_ev']*100:.1f}% | Avg Kelly: {stats['avg_kelly']*100:.1f}%")
+        lines.append(f"Avg Position Lifetime: {analytics['avg_lifetime_hours']:.1f}h")
+        lines.append(f"EV Accuracy — Predicted: +{analytics['ev_predicted']*100:.1f}% | Actual: {analytics['ev_actual']*100:+.1f}%")
+
+        # Open positions
+        lines.append(f"\n## OPEN POSITIONS ({len(open_pos)})")
+        for p in open_pos:
+            upnl = p.get("unrealized_pnl") or 0
+            lines.append(f"  [{p['side']}] {p.get('question','')[:80]} | entry={p['side_price']*100:.1f}c now={((p.get('current_price') or p['side_price'])*100):.1f}c | uPnL={upnl:+.2f}$ | stake=${p['stake_amt']:.2f} | EV=+{p['ev']*100:.1f}% | theme={p.get('theme','?')} | tag={p.get('config_tag','?')}")
+
+        # Rolling performance
+        lines.append(f"\n## ROLLING PERFORMANCE")
+        lines.append(f"  7d: {rolling['pnl_7d']:+.2f}$ ({rolling['trades_7d']} trades, WR={rolling['wr_7d']:.1f}%)")
+        lines.append(f"  30d: {rolling['pnl_30d']:+.2f}$ ({rolling['trades_30d']} trades, WR={rolling['wr_30d']:.1f}%)")
+
+        # Best/worst
+        if best_worst.get("best"):
+            lines.append(f"\n## BEST/WORST TRADES")
+            lines.append(f"  Best: +{best_worst['best']['pnl']:.2f}$ — {best_worst['best']['question'][:70]}")
+        if best_worst.get("worst"):
+            lines.append(f"  Worst: {best_worst['worst']['pnl']:.2f}$ — {best_worst['worst']['question'][:70]}")
+
+        # Win rate by theme
+        lines.append(f"\n## WIN RATE BY THEME")
+        for r in analytics["by_theme"]:
+            t_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['theme']}: {r['wins']}/{r['total']} ({t_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+
+        # Win rate by side
+        lines.append(f"\n## WIN RATE BY SIDE")
+        for r in analytics["by_side"]:
+            s_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['side']}: {r['wins']}/{r['total']} ({s_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+
+        # Close reasons
+        lines.append(f"\n## CLOSE REASONS")
+        for r in analytics["by_reason"]:
+            lines.append(f"  {r['reason']}: {r['total']} trades, avg_pnl={r['avg_pnl']:+.2f}$")
+
+        # Config A/B
+        lines.append(f"\n## CONFIG A/B PERFORMANCE")
+        for r in analytics["by_config"]:
+            c_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['config_tag']}: {r['wins']}/{r['total']} ({c_wr}%) total_pnl={r['total_pnl']:+.2f}$ avg_pnl={r['avg_pnl']:+.2f}$ avg_ev={r['avg_ev']*100:.1f}% avg_stake=${r['avg_stake']:.2f}")
+
+        # Calibration
+        lines.append(f"\n## CALIBRATION")
+        for r in analytics["calibration"]:
+            lines.append(f"  {r['bucket']}: {r['total']} trades, predicted={float(r['avg_predicted'])*100:.1f}%, actual_wr={float(r['actual_wr'])*100:.1f}%")
+
+        # Diagnostics
+        diag = diagnostics
+        lines.append(f"\n## DIAGNOSTICS — Win/Loss Size")
+        wl = diag.get("win_loss_size", {})
+        lines.append(f"  Avg win: ${wl.get('avg_win', 0)} ({(wl.get('avg_win_pct') or 0)*100:.1f}%) | Avg loss: ${wl.get('avg_loss', 0)} ({(wl.get('avg_loss_pct') or 0)*100:.1f}%)")
+        lines.append(f"  Breakeven WR needed: {diag.get('breakeven_wr', 0)}%")
+
+        lines.append(f"\n## DIAGNOSTICS — Exact Close Reasons (trade_log)")
+        for r in diag.get("close_reasons", []):
+            lines.append(f"  {r['event_type']}: {r['total']} trades, avg_pnl={r['avg_pnl']:+.2f}$, total_pnl={r['total_pnl']:+.2f}$, avg_stake=${r['avg_stake']:.2f}")
+
+        lines.append(f"\n## DIAGNOSTICS — WR by EV bucket")
+        for r in diag.get("ev_buckets", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  EV {r['ev_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
+
+        lines.append(f"\n## DIAGNOSTICS — WR by Kelly bucket")
+        for r in diag.get("kelly_buckets", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  Kelly {r['kelly_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
+
+        lines.append(f"\n## DIAGNOSTICS — WR by Lifetime")
+        for r in diag.get("lifetime_wr", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['lifetime']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+
+        lines.append(f"\n## DIAGNOSTICS — WR by Stake size")
+        for r in diag.get("stake_wr", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['stake_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
+
+        lines.append(f"\n## DIAGNOSTICS — TP/SL Distribution")
+        for r in diag.get("tp_sl_dist", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  TP={r['tp']} SL={r['sl']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+
+        lines.append(f"\n## DIAGNOSTICS — Daily WR (last 14d)")
+        for r in diag.get("daily_wr", []):
+            d_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['day']}: {r['wins']}/{r['total']} ({d_wr}%) pnl={r['pnl']:+.2f}$ avg_return={r.get('avg_return_pct', 0)*100:.1f}%")
+
+        # CLV
+        lines.append(f"\n## CLV (Closing Line Value)")
+        lines.append(f"  Avg CLV: 1h={clv['avg_clv_1h']:+.2f}% 4h={clv['avg_clv_4h']:+.2f}% 24h={clv['avg_clv_24h']:+.2f}% close={clv['avg_clv_close']:+.2f}%")
+        lines.append(f"  Positive CLV: {clv['positive_clv_pct']}% ({clv.get('n_with_clv', 0)}/{clv['total']} trades)")
+        for r in clv.get("by_theme", []):
+            lines.append(f"  CLV by theme — {r['theme']}: avg={r['avg_clv']:+.2f}% positive={r['positive_pct']}% (n={r['n']})")
+        for r in clv.get("by_tag", []):
+            lines.append(f"  CLV by config — {r['tag']}: avg={r['avg_clv']:+.2f}% positive={r['positive_pct']}% (n={r['n']})")
+
+        # DMA weights
+        if dma:
+            lines.append(f"\n## DMA WEIGHTS (Dynamic Model Averaging)")
+            for w in dma:
+                lines.append(f"  {w['source']}: weight={w['weight']:.4f} hits={w.get('hits',0)} misses={w.get('misses',0)} avg_likelihood={w.get('avg_likelihood',0):.4f}")
+
+        # Signal backtest / outcomes
+        lines.append(f"\n## SIGNAL BACKTEST (last 50)")
+        valid_sigs = [s for s in sig_outcomes if s.get("price_move") is not None]
+        exec_sigs = [s for s in valid_sigs if s["executed"]]
+        rej_sigs = [s for s in valid_sigs if not s["executed"]]
+        exec_right = sum(1 for s in exec_sigs if s.get("price_move") and s["price_move"] > 0)
+        rej_right = sum(1 for s in rej_sigs if s.get("price_move") and s["price_move"] > 0)
+        rej_saved = sum(1 for s in rej_sigs if not (s.get("price_move") and s["price_move"] > 0))
+        lines.append(f"  Executed signals: {len(exec_sigs)} total, {exec_right} correct ({round(exec_right/len(exec_sigs)*100,1) if exec_sigs else 0}%)")
+        lines.append(f"  Rejected signals: {len(rej_sigs)} total, {rej_right} would've been correct, {rej_saved} correctly avoided")
+        for s in sig_outcomes[:20]:
+            pm = s.get("price_move")
+            pm_str = f"move={pm:+.3f}" if pm is not None else "move=?"
+            lines.append(f"  [{s['side']}] {s.get('question','')[:55]} | EV={s['ev']*100:.1f}% kelly={s.get('kelly',0)*100:.1f}% | {pm_str} | exec={'Y' if s['executed'] else 'N'} src={s.get('source','?')}")
+
+        # Market metrics (active markets)
+        if market_metrics:
+            lines.append(f"\n## ACTIVE MARKET METRICS (top {len(market_metrics)})")
+            for m in market_metrics:
+                lines.append(f"  {m.get('question','')[:55]} | price={m.get('yes_price',0)*100:.1f}c vol={m.get('volatility',0):.4f} momentum={m.get('momentum',0):.4f} vol_ratio={m.get('vol_ratio',0):.2f} | theme={m.get('theme','?')}")
+
+        # Config history
+        if config_hist:
+            lines.append(f"\n## CONFIG HISTORY ({len(config_hist)} versions)")
+            for c in config_hist[:5]:
+                params = c.get("params", {})
+                if isinstance(params, str):
+                    try:
+                        params = json.loads(params)
+                    except Exception:
+                        params = {}
+                if params:
+                    param_str = " ".join(f"{k}={v}" for k, v in params.items())
+                else:
+                    param_str = "—"
+                lines.append(f"  {c.get('tag','?')} ({c.get('created_at','?')}): {param_str}")
+
+        # Patterns (learned base rates)
+        try:
+            async with _db.pool.acquire() as conn:
+                patterns = await conn.fetch("""
+                    SELECT category, base_rate, volume_signal, prospect_factor,
+                           trade_n, trade_wr, trade_roi, kelly_mult, ev_mult, updated_at
+                    FROM patterns ORDER BY trade_n DESC NULLS LAST
+                """)
+            if patterns:
+                lines.append(f"\n## LEARNED PATTERNS ({len(patterns)} themes)")
+                for p in patterns:
+                    p = dict(p)
+                    lines.append(f"  {p.get('category','?')}: base_rate={float(p.get('base_rate') or 0):.3f} vol_signal={float(p.get('volume_signal') or 0):.3f} prospect={float(p.get('prospect_factor') or 0):.3f} | trades={p.get('trade_n',0)} WR={float(p.get('trade_wr') or 0)*100:.1f}% ROI={float(p.get('trade_roi') or 0)*100:.1f}% kelly_mult={float(p.get('kelly_mult') or 1):.2f} ev_mult={float(p.get('ev_mult') or 1):.2f}")
+        except Exception:
+            pass
+
+        # Recent signals
+        lines.append(f"\n## RECENT SIGNALS (last 30)")
+        for s in signals:
+            ml_str = f" ML={s['p_ml']*100:.0f}%" if s.get('p_ml') else ""
+            lines.append(f"  [{s['side']}] {s.get('question','')[:60]} | market={s['p_market']*100:.1f}c pTrue={s['p_final']*100:.1f}c | EV=+{s['ev']*100:.1f}% KL={s['kl']:.3f}{ml_str} | src={s.get('source','?')} exec={'Y' if s.get('executed') else 'N'}")
+
+        # Config
+        lines.append(f"\n## CURRENT CONFIG")
+        lines.append(f"  BANKROLL={start} MIN_EV={_config['MIN_EV']} MIN_KL={_config['MIN_KL']} MAX_KELLY_FRAC={_config['MAX_KELLY_FRAC']}")
+        lines.append(f"  TAKE_PROFIT={_config['TAKE_PROFIT_PCT']} STOP_LOSS={_config['STOP_LOSS_PCT']}")
+
+        # Daily P&L
+        lines.append(f"\n## DAILY P&L (last 14d)")
+        for r in analytics["daily_pnl"]:
+            d_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
+            lines.append(f"  {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={d_wr}%)")
+
+        # === ARBITRAGE BOT (full) ===
+        try:
+            arb_stats = await _db.get_arb_stats()
+            if arb_stats and arb_stats.get("wins", 0) + arb_stats.get("losses", 0) > 0:
+                arb_total = arb_stats["wins"] + arb_stats["losses"]
+                arb_wr = round(arb_stats["wins"] / arb_total * 100, 1) if arb_total > 0 else 0
+                lines.append(f"\n## ARBITRAGE BOT")
+                lines.append(f"  Bankroll: ${arb_stats['bankroll']:.2f} | P&L: ${arb_stats['total_pnl']:+.2f} | WR: {arb_wr}% ({arb_stats['wins']}W/{arb_stats['losses']}L)")
+
+                arb_open = await _db.get_arb_open_positions()
+                if arb_open:
+                    lines.append(f"  Open arb positions: {len(arb_open)}")
+                    for p in arb_open:
+                        upnl = p.get("unrealized_pnl") or 0
+                        lines.append(f"    [{p['side']}] {p.get('question','')[:60]} | entry={p.get('side_price',0)*100:.1f}c now={((p.get('current_price') or p.get('side_price',0))*100):.1f}c | uPnL={upnl:+.2f}$ | group={p.get('group_name','?')}")
+
+                arb_analytics = await _db.get_arb_analytics()
+                if arb_analytics.get("by_group"):
+                    lines.append(f"  Arb avg lifetime: {arb_analytics['avg_lifetime_min']:.1f} min")
+                    lines.append(f"  Arb WR by group:")
+                    for r in arb_analytics["by_group"]:
+                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"    {r['group_name']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
+                if arb_analytics.get("by_reason"):
+                    lines.append(f"  Arb WR by close reason:")
+                    for r in arb_analytics["by_reason"]:
+                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"    {r['reason']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+                if arb_analytics.get("by_side"):
+                    lines.append(f"  Arb WR by side:")
+                    for r in arb_analytics["by_side"]:
+                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"    {r['side']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+                if arb_analytics.get("daily_pnl"):
+                    lines.append(f"  Arb daily P&L:")
+                    for r in arb_analytics["daily_pnl"]:
+                        g_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
+                        lines.append(f"    {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={g_wr}%)")
+        except Exception:
+            pass
+
+        # === MICRO (SCALPING) BOT (full) ===
+        try:
+            micro_stats = await _db.get_micro_stats()
+            if micro_stats and micro_stats.get("wins", 0) + micro_stats.get("losses", 0) > 0:
+                m_total = micro_stats["wins"] + micro_stats["losses"]
+                m_wr = round(micro_stats["wins"] / m_total * 100, 1) if m_total > 0 else 0
+                lines.append(f"\n## MICRO (SCALPING) BOT")
+                lines.append(f"  Bankroll: ${micro_stats['bankroll']:.2f} | P&L: ${micro_stats['total_pnl']:+.2f} | WR: {m_wr}% ({micro_stats['wins']}W/{micro_stats['losses']}L)")
+                lines.append(f"  Total trades: {micro_stats.get('total_trades',0)} | Peak equity: ${micro_stats.get('peak_equity',0):.2f}")
+
+                micro_open = await _db.get_micro_open_positions()
+                if micro_open:
+                    lines.append(f"  Open micro positions: {len(micro_open)}")
+                    for p in micro_open:
+                        upnl = p.get("unrealized_pnl") or 0
+                        lines.append(f"    [{p['side']}] {p.get('question','')[:60]} | entry={p.get('entry_price',0)*100:.1f}c now={((p.get('current_price') or p.get('entry_price',0))*100):.1f}c | uPnL={upnl:+.2f}$ | theme={p.get('theme','?')}")
+
+                micro_analytics = await _db.get_micro_analytics()
+                if micro_analytics.get("by_theme"):
+                    lines.append(f"  Micro avg lifetime: {micro_analytics.get('avg_lifetime_hours',0):.1f}h")
+                    lines.append(f"  Micro WR by theme:")
+                    for r in micro_analytics["by_theme"]:
+                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"    {r['theme']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
+                if micro_analytics.get("by_reason"):
+                    lines.append(f"  Micro WR by close reason:")
+                    for r in micro_analytics["by_reason"]:
+                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"    {r['reason']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+                if micro_analytics.get("by_side"):
+                    lines.append(f"  Micro WR by side:")
+                    for r in micro_analytics["by_side"]:
+                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"    {r['side']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
+                if micro_analytics.get("daily_pnl"):
+                    lines.append(f"  Micro daily P&L:")
+                    for r in micro_analytics["daily_pnl"]:
+                        g_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
+                        lines.append(f"    {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={g_wr}%)")
+        except Exception:
+            pass
+
+        # === CALIBRATION TABLE (per-agent from calibration table) ===
+        try:
+            async with _db.pool.acquire() as conn:
+                cal_rows = await conn.fetch("""
+                    SELECT agent, ROUND(AVG(brier_score)::numeric, 4) as avg_brier,
+                           ROUND(AVG(bias)::numeric, 4) as avg_bias,
+                           ROUND(AVG(correction_factor)::numeric, 4) as avg_correction,
+                           COUNT(*) as n
+                    FROM calibration
+                    GROUP BY agent ORDER BY n DESC
+                """)
+            if cal_rows:
+                lines.append(f"\n## CALIBRATION BY AGENT")
+                for r in cal_rows:
+                    lines.append(f"  {r['agent']}: brier={float(r['avg_brier']):.4f} bias={float(r['avg_bias']):+.4f} correction={float(r['avg_correction']):.4f} (n={r['n']})")
+        except Exception:
+            pass
+
+        lines.append(f"\n{'=' * 60}")
+        lines.append("END OF AUDIT")
+
+        report = "\n".join(lines)
+        return Response(report, media_type="text/plain; charset=utf-8")
+    except Exception as e:
+        log.error(f"[DASHBOARD] System audit error: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/favicon.ico")
 async def favicon():
     return Response(status_code=204)

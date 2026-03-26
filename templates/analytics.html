@@ -207,9 +207,12 @@
 <div class="panel">
   <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
     <h2>AI Analysis (Sonnet)</h2>
-    <button id="runAnalysis" onclick="runSonnetAnalysis()" style="padding:8px 20px;background:#3B82F6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">Run Analysis</button>
+    <div style="display:flex;gap:8px">
+      <button id="runAudit" onclick="runSystemAudit()" style="padding:8px 20px;background:#8B5CF6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px" title="Generate full system report for Claude analysis">Full Audit</button>
+      <button id="runAnalysis" onclick="runSonnetAnalysis()" style="padding:8px 20px;background:#3B82F6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">Run Analysis</button>
+    </div>
   </div>
-  <pre id="analysisResult" style="white-space:pre-wrap;color:#E5E7EB;font-size:13px;padding:12px;background:#1a1f2e;border-radius:6px;min-height:40px">Click "Run Analysis" to get Sonnet recommendations</pre>
+  <pre id="analysisResult" style="white-space:pre-wrap;color:#E5E7EB;font-size:13px;padding:12px;background:#1a1f2e;border-radius:6px;min-height:40px">Click "Run Analysis" for Sonnet recommendations or "Full Audit" to generate a complete system report for Claude</pre>
 </div>
 
 <!-- CLV (Closing Line Value) -->
@@ -485,6 +488,27 @@ async function runSonnetAnalysis(){
     else{result.textContent='Error: '+(data.error||'Unknown error');result.style.color='#EF4444'}
   }catch(e){result.textContent='Request failed: '+e.message;result.style.color='#EF4444'}
   btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
+}
+
+// Full System Audit
+async function runSystemAudit(){
+  const btn=document.getElementById('runAudit');
+  const result=document.getElementById('analysisResult');
+  btn.disabled=true;btn.textContent='Loading...';btn.style.background='#6B7280';
+  result.textContent='Generating full system audit...';result.style.color='#E5E7EB';
+  try{
+    const r=await fetch('/api/system-audit');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const text=await r.text();
+    result.textContent=text;
+    // Copy to clipboard
+    await navigator.clipboard.writeText(text);
+    btn.textContent='Copied!';btn.style.background='#10B981';
+    setTimeout(()=>{btn.disabled=false;btn.textContent='Full Audit';btn.style.background='#8B5CF6'},2000);
+  }catch(e){
+    result.textContent='Error: '+e.message;result.style.color='#EF4444';
+    btn.disabled=false;btn.textContent='Full Audit';btn.style.background='#8B5CF6';
+  }
 }
 
 function toggleRows(tableId, link){
