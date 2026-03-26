@@ -113,6 +113,7 @@
       <th class="sortable" title="KL-дивергенция">KL</th>
       <th class="sortable" title="Размер ставки">Ставка</th>
       <th class="sortable" title="Дата открытия">Открыта</th>
+      <th class="sortable">Theme</th>
       <th class="sortable" title="Версия конфига">Tag</th>
       <th></th>
     </tr>
@@ -129,6 +130,7 @@
       <td class="num kl">{{ "%.3f"|format(p.kl) }}</td>
       <td class="num">${{ "%.2f"|format(p.stake_amt) }}</td>
       <td class="num" style="color:#6B7280;font-size:11px">{{ p.opened_at.strftime('%d.%m %H:%M') if p.opened_at else '—' }}</td>
+      <td class="num" style="font-size:11px">{{ p.theme or '—' }}</td>
       <td class="num" style="color:#6B7280;font-size:11px">{{ p.config_tag or '—' }}</td>
       <td>
         <div style="display:flex;gap:6px;align-items:center">
@@ -250,6 +252,7 @@
       <th class="sortable">Вопрос</th>
       <th class="sortable">Side</th>
       <th class="sortable">Вход</th>
+      <th class="sortable">Theme</th>
       <th class="sortable">Исход</th>
       <th class="sortable">P&amp;L</th>
       <th class="sortable">Итог</th>
@@ -260,13 +263,14 @@
       <td class="q">{{ t.question[:60] }}...</td>
       <td class="{{ 'yes' if t.side == 'YES' else 'no' }}">{{ t.side }}</td>
       <td class="num">{{ "%.1f"|format(t.side_price * 100) }}&#162;</td>
+      <td class="num" style="font-size:11px">{{ t.theme or '—' }}</td>
       <td>{{ t.outcome or '?' }}</td>
       <td class="num" style="color:{{ pc(t.pnl) }}">{{ "%+.2f"|format(t.pnl) }}$</td>
       <td><span class="badge {{ 'win' if t.result == 'WIN' else 'loss' }}">{{ t.result }}</span></td>
       <td class="num ev">+{{ "%.1f"|format(t.ev * 100) }}%</td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="empty">Нет сделок</td></tr>
+    <tr><td colspan="8" class="empty">Нет сделок</td></tr>
     {% endfor %}
   </table>
   <div style="padding:16px 20px;display:flex;justify-content:center;gap:12px">
