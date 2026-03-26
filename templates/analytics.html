@@ -279,6 +279,65 @@
   <pre id="analysisResult" style="white-space:pre-wrap;color:#E5E7EB;font-size:13px;padding:12px;background:#1a1f2e;border-radius:6px;min-height:40px">Click "Run Analysis" to get Sonnet recommendations</pre>
 </div>
 
+<!-- CLV (Closing Line Value) -->
+<div class="panel">
+  <div class="panel-header"><h2>Closing Line Value</h2><span class="count">{{ clv.n_with_clv }}/{{ clv.total }} trades</span></div>
+  <div class="grid" style="margin-bottom:16px">
+    <div class="card">
+      <div class="label">CLV 1h</div>
+      <div class="value num" style="color:{{ pc(clv.avg_clv_1h) }}">{{ "%+.2f"|format(clv.avg_clv_1h) }}%</div>
+      <div class="sub">Price move 1h after entry</div>
+    </div>
+    <div class="card">
+      <div class="label">CLV 4h</div>
+      <div class="value num" style="color:{{ pc(clv.avg_clv_4h) }}">{{ "%+.2f"|format(clv.avg_clv_4h) }}%</div>
+      <div class="sub">Price move 4h after entry</div>
+    </div>
+    <div class="card">
+      <div class="label">CLV 24h</div>
+      <div class="value num" style="color:{{ pc(clv.avg_clv_24h) }}">{{ "%+.2f"|format(clv.avg_clv_24h) }}%</div>
+      <div class="sub">Price move 24h after entry</div>
+    </div>
+    <div class="card">
+      <div class="label">CLV Close</div>
+      <div class="value num" style="color:{{ pc(clv.avg_clv_close) }}">{{ "%+.2f"|format(clv.avg_clv_close) }}%</div>
+      <div class="sub">{{ clv.positive_clv_pct }}% positive entries</div>
+    </div>
+  </div>
+  <div class="two-col">
+    <div>
+      <table>
+        <tr><th>Theme</th><th>CLV%</th><th>+CLV%</th><th>N</th></tr>
+        {% for r in clv.by_theme %}
+        <tr>
+          <td>{{ r.theme }}</td>
+          <td class="num" style="color:{{ pc(r.avg_clv) }}">{{ "%+.2f"|format(r.avg_clv) }}%</td>
+          <td class="num">{{ r.positive_pct }}%</td>
+          <td class="num">{{ r.n }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">No CLV data yet</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <table>
+        <tr><th>Config</th><th>CLV%</th><th>+CLV%</th><th>N</th></tr>
+        {% for r in clv.by_tag %}
+        <tr>
+          <td>{{ r.tag }}</td>
+          <td class="num" style="color:{{ pc(r.avg_clv) }}">{{ "%+.2f"|format(r.avg_clv) }}%</td>
+          <td class="num">{{ r.positive_pct }}%</td>
+          <td class="num">{{ r.n }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">No CLV data yet</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Signal Backtest -->
 <div class="panel">
   <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">

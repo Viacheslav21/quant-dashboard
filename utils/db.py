@@ -495,6 +495,61 @@ class Database:
                 "tp_sl_dist": _clean_list(tp_sl_dist),
             }
 
+    # ── CLV Analytics ──
+
+    async def get_clv_analytics(self) -> dict:
+        """CLV = did price move in our direction after entry? Positive = good entry."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT side, side_price, clv_1h, clv_4h, clv_24h, clv_close,
+                       result, theme, config_tag
+                FROM positions
+                WHERE status = 'closed' AND side_price > 0
+                ORDER BY closed_at DESC LIMIT 500
+            """)
+            if not rows:
+                return {"avg_clv_1h": 0, "avg_clv_4h": 0, "avg_clv_24h": 0, "avg_clv_close": 0,
+                        "total": 0, "positive_clv_pct": 0, "by_theme": [], "by_tag": []}
+
+            def clv_val(row, col):
+                v = row.get(col)
+                if v is None or v <= 0:
+                    return None
+                entry = row["side_price"]
+                if row["side"] == "YES":
+                    return (v - entry) / entry
+                else:
+                    return (entry - v) / entry
+
+            clvs = {"1h": [], "4h": [], "24h": [], "close": []}
+            by_theme, by_tag = {}, {}
+            for r in rows:
+                for label, col in [("1h","clv_1h"),("4h","clv_4h"),("24h","clv_24h"),("close","clv_close")]:
+                    v = clv_val(r, col)
+                    if v is not None:
+                        clvs[label].append(v)
+                cv = clv_val(r, "clv_close")
+                if cv is not None:
+                    by_theme.setdefault(r.get("theme") or "other", []).append(cv)
+                    by_tag.setdefault(r.get("config_tag") or "?", []).append(cv)
+
+            def avg(lst): return round(sum(lst)/len(lst)*100, 2) if lst else 0
+            def pos_pct(lst): return round(sum(1 for v in lst if v > 0)/len(lst)*100, 1) if lst else 0
+
+            return {
+                "avg_clv_1h": avg(clvs["1h"]),
+                "avg_clv_4h": avg(clvs["4h"]),
+                "avg_clv_24h": avg(clvs["24h"]),
+                "avg_clv_close": avg(clvs["close"]),
+                "positive_clv_pct": pos_pct(clvs["close"]),
+                "total": len(rows),
+                "n_with_clv": len(clvs["close"]),
+                "by_theme": [{"theme": t, "avg_clv": avg(v), "positive_pct": pos_pct(v), "n": len(v)}
+                             for t, v in sorted(by_theme.items(), key=lambda x: -len(x[1]))],
+                "by_tag": [{"tag": t, "avg_clv": avg(v), "positive_pct": pos_pct(v), "n": len(v)}
+                           for t, v in sorted(by_tag.items(), key=lambda x: -len(x[1]))],
+            }
+
     # ── Arbitrage tables (read-only) ──
 
     async def get_arb_stats(self) -> dict:
