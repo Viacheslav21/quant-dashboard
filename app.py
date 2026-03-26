@@ -342,6 +342,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             daily_data=to_json(data["daily_pnl"]),
             cal_data=to_json(data["calibration"]),
             theme_data=to_json(data["by_theme"]),
+            side_data=to_json(data["by_side"]),
             equity_data=to_json(equity),
             drawdown_data=to_json(drawdown["series"]),
             dist_data=to_json(pnl_dist),
@@ -471,7 +472,6 @@ async def run_analysis(request: Request):
         )
         for section, key, fields in [
             ("WIN RATE BY THEME", "by_theme", "theme"),
-            ("WIN RATE BY SOURCE", "by_source", "source"),
             ("WIN RATE BY SIDE", "by_side", "side"),
         ]:
             summary += f"=== {section} ===\n"

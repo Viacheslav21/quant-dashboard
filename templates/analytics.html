@@ -103,59 +103,15 @@
   </table>
 </div>
 
-<!-- Theme / Source -->
-<div class="row">
-  <div class="panel">
-    <div class="panel-header"><h2>Win Rate by Theme</h2></div>
-    <table>
-      <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Avg PnL</th></tr>
-      {% for r in data.by_theme %}
-      <tr>
-        <td>{{ r.theme }}</td>
-        <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">Нет данных</td></tr>
-      {% endfor %}
-    </table>
+<!-- Theme Pie + Side Pie + Close Reason -->
+<div class="row" style="grid-template-columns:1fr 1fr 1fr">
+  <div class="panel" style="padding:20px">
+    <div class="panel-header" style="padding:0 0 12px 0"><h2>Win Rate by Theme</h2></div>
+    <div style="height:280px"><canvas id="themeChart"></canvas></div>
   </div>
-  <div class="panel">
-    <div class="panel-header"><h2>Win Rate by Source</h2></div>
-    <table>
-      <tr><th class="sortable">Source</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Avg PnL</th></tr>
-      {% for r in data.by_source %}
-      <tr>
-        <td>{{ r.source or 'unknown' }}</td>
-        <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">Нет данных</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-</div>
-
-<!-- Side / Close reason -->
-<div class="row">
-  <div class="panel">
-    <div class="panel-header"><h2>Win Rate by Side</h2></div>
-    <table>
-      <tr><th class="sortable">Side</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Avg PnL</th></tr>
-      {% for r in data.by_side %}
-      <tr>
-        <td class="{{ 'yes' if r.side == 'YES' else 'no' }}">{{ r.side }}</td>
-        <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">Нет данных</td></tr>
-      {% endfor %}
-    </table>
+  <div class="panel" style="padding:20px">
+    <div class="panel-header" style="padding:0 0 12px 0"><h2>Win Rate by Side</h2></div>
+    <div style="height:280px"><canvas id="sideChart"></canvas></div>
   </div>
   <div class="panel">
     <div class="panel-header"><h2>Close Reason</h2></div>
@@ -186,20 +142,20 @@
   </div>
 </div>
 
-<!-- Charts row 2: Calibration + Theme Pie -->
+<!-- Charts row 2: Calibration + PnL Distribution -->
 <div class="row">
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Calibration</h2></div>
     <div style="height:280px"><canvas id="calChart"></canvas></div>
   </div>
   <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>Win Rate by Theme</h2></div>
-    <div style="height:280px"><canvas id="themeChart"></canvas></div>
+    <div class="panel-header" style="padding:0 0 12px 0"><h2>P&amp;L Distribution</h2></div>
+    <div style="height:280px"><canvas id="distChart"></canvas></div>
   </div>
 </div>
 
-<!-- Charts row 3: Equity + Drawdown + PnL Distribution -->
-<div class="row" style="grid-template-columns:1fr 1fr 1fr">
+<!-- Charts row 3: Equity + Drawdown -->
+<div class="row">
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Equity Curve</h2></div>
     <div style="height:250px"><canvas id="equityChart"></canvas></div>
@@ -207,10 +163,6 @@
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Drawdown</h2></div>
     <div style="height:250px"><canvas id="ddChart"></canvas></div>
-  </div>
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>P&amp;L Distribution</h2></div>
-    <div style="height:250px"><canvas id="distChart"></canvas></div>
   </div>
 </div>
 
@@ -248,25 +200,6 @@
       <tr><td colspan="4" class="empty">Нет данных</td></tr>
       {% endfor %}
     </table>
-  </div>
-</div>
-
-<!-- Signal accuracy cards -->
-<div class="row" style="grid-template-columns:repeat(3,1fr)">
-  <div class="card" title="Исполненные сигналы — направление верное">
-    <div class="label">Executed &rarr; Right</div>
-    <div class="value num" style="color:#3B82F6">{{ exec_right }}/{{ exec_total }}</div>
-    <div class="sub">{{ (exec_right * 100 / exec_total)|round|int if exec_total > 0 else 0 }}% of executed moved our way</div>
-  </div>
-  <div class="card" title="Отвергнутые, но цена пошла в нашу сторону">
-    <div class="label">Missed Profit</div>
-    <div class="value num" style="color:#F59E0B">{{ rej_right }}</div>
-    <div class="sub">Rejected but would have won</div>
-  </div>
-  <div class="card" title="Отвергнутые и цена пошла против — спасены">
-    <div class="label">Saved by Rejection</div>
-    <div class="value num" style="color:#10B981">{{ rej_saved }}</div>
-    <div class="sub">Rejected and would have lost</div>
   </div>
 </div>
 
@@ -365,39 +298,6 @@
   {% endif %}
 </div>
 
-<!-- Signal Backtest -->
-<div class="panel">
-  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
-    <h2>Signal Backtest</h2>
-    <span class="count">{{ sig_outcomes|length }}</span>
-  </div>
-  <table id="tbl-backtest">
-    <tr>
-      <th class="sortable">Question</th><th class="sortable">Side</th><th class="sortable">Entry</th>
-      <th class="sortable">Now</th><th class="sortable">Move</th><th class="sortable">Direction</th><th class="sortable">Status</th>
-    </tr>
-    {% for s in sig_outcomes %}
-    <tr{% if loop.index > 20 %} class="hidden-row" style="display:none"{% endif %}>
-      <td class="q">{{ s.question[:55] }}...</td>
-      <td class="{{ 'yes' if s.side == 'YES' else 'no' }}">{{ s.side }}</td>
-      <td class="num">{{ "%.1f"|format(s.side_price * 100) }}&#162;</td>
-      <td class="num">{{ "%.1f"|format((s.current_price or 0) * 100) }}&#162;</td>
-      {% set move = s.price_move or 0 %}
-      <td class="num" style="color:{{ pc(move) }}">{{ "%+.1f"|format(move * 100) }}&#162;</td>
-      <td style="color:{{ '#3B82F6' if move > 0 else '#EF4444' }}">{{ 'RIGHT' if move > 0 else 'WRONG' }}</td>
-      <td style="color:{{ '#10B981' if s.executed else '#6B7280' }}">{{ 'EXEC' if s.executed else 'REJ' }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7" class="empty">No signals</td></tr>
-    {% endfor %}
-  </table>
-  {% if sig_outcomes|length > 20 %}
-  <div style="padding:12px 20px;text-align:center">
-    <a href="#" onclick="toggleRows('tbl-backtest',this);return false" style="color:#3B82F6;text-decoration:none;font-size:13px">Show all ({{ sig_outcomes|length }})</a>
-  </div>
-  {% endif %}
-</div>
-
 <!-- Market Metrics -->
 <div class="panel">
   <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
@@ -445,6 +345,7 @@ const pnlData = {{ pnl_data|safe }};
 const dailyData = {{ daily_data|safe }};
 const calData = {{ cal_data|safe }};
 const themeData = {{ theme_data|safe }};
+const sideData = {{ side_data|safe }};
 const eqData = {{ equity_data|safe }};
 const ddData = {{ drawdown_data|safe }};
 const distData = {{ dist_data|safe }};
@@ -498,6 +399,17 @@ if(themeData.length>0){
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:'right',labels:{color:'#D1D5DB',font:{size:11},padding:8,usePointStyle:true,pointStyle:'circle'}},
         tooltip:{callbacks:{label:function(c){var d=themeData[c.dataIndex];var wr=d.total>0?Math.round(d.wins/d.total*100):0;return d.theme+': '+d.total+' trades, WR '+wr+'% ('+d.wins+'W/'+(d.total-d.wins)+'L)'}}}}}
+  });
+}
+
+// Side pie
+if(sideData.length>0){
+  new Chart(document.getElementById('sideChart'),{type:'pie',
+    data:{labels:sideData.map(d=>d.side),
+      datasets:[{data:sideData.map(d=>d.total),backgroundColor:['#10B981','#EF4444'],borderColor:'#1F2937',borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'right',labels:{color:'#D1D5DB',font:{size:11},padding:8,usePointStyle:true,pointStyle:'circle'}},
+        tooltip:{callbacks:{label:function(c){var d=sideData[c.dataIndex];var wr=d.total>0?Math.round(d.wins/d.total*100):0;return d.side+': '+d.total+' trades, WR '+wr+'% ('+d.wins+'W/'+(d.total-d.wins)+'L), Avg '+d.avg_pnl+'$'}}}}}
   });
 }
 

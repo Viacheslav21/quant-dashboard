@@ -189,15 +189,6 @@ class Database:
                 FROM positions WHERE status='closed' AND theme IS NOT NULL
                 GROUP BY theme ORDER BY total DESC
             """)
-            by_source = await conn.fetch("""
-                SELECT COALESCE(s.source, 'math') as source, COUNT(*) as total,
-                    SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
-                    ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl
-                FROM positions p
-                LEFT JOIN signals s ON p.signal_id = s.id
-                WHERE p.status='closed'
-                GROUP BY COALESCE(s.source, 'math') ORDER BY total DESC
-            """)
             by_side = await conn.fetch("""
                 SELECT side, COUNT(*) as total,
                     SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
@@ -266,7 +257,6 @@ class Database:
         return {
             "by_config": _clean_list(by_config),
             "by_theme": _clean_list(by_theme),
-            "by_source": _clean_list(by_source),
             "by_side": _clean_list(by_side),
             "by_reason": _clean_list(by_reason),
             "calibration": _clean_list(calibration),
