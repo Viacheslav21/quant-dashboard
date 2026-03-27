@@ -628,11 +628,27 @@ async def system_audit():
         for r in clv.get("by_tag", []):
             lines.append(f"  CLV by config — {r['tag']}: avg={r['avg_clv']:+.2f}% positive={r['positive_pct']}% (n={r['n']})")
 
-        # DMA weights
+        # DMA weights + diagnostics
         if dma:
             lines.append(f"\n## DMA WEIGHTS (Dynamic Model Averaging)")
             for w in dma:
                 lines.append(f"  {w['source']}: weight={w['weight']:.4f} hits={w.get('hits',0)} misses={w.get('misses',0)} avg_likelihood={w.get('avg_likelihood',0):.4f}")
+        # DMA diagnostics — check if JOIN works
+        try:
+            async with _db.pool.acquire() as conn:
+                dma_diag = await conn.fetchrow("""
+                    SELECT COUNT(*) as total,
+                           SUM(CASE WHEN p.signal_id IS NOT NULL THEN 1 ELSE 0 END) as has_signal_id,
+                           SUM(CASE WHEN tl.details IS NOT NULL THEN 1 ELSE 0 END) as has_details,
+                           SUM(CASE WHEN tl.details::text LIKE '%p_momentum%' THEN 1 ELSE 0 END) as has_sources
+                    FROM positions p
+                    LEFT JOIN trade_log tl ON tl.signal_id = p.signal_id AND tl.event_type = 'SIGNAL_GENERATED'
+                    WHERE p.status = 'closed' AND p.result IS NOT NULL
+                    ORDER BY p.closed_at DESC LIMIT 200
+                """)
+                lines.append(f"  DMA diag: {dma_diag['total']} closed, {dma_diag['has_signal_id']} with signal_id, {dma_diag['has_details']} with details, {dma_diag['has_sources']} with source probs")
+        except Exception as e:
+            lines.append(f"  DMA diag error: {e}")
 
         # Signal backtest / outcomes
         lines.append(f"\n## SIGNAL BACKTEST (last 50)")
