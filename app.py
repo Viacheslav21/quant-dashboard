@@ -641,10 +641,8 @@ async def system_audit():
                            SUM(CASE WHEN p.signal_id IS NOT NULL THEN 1 ELSE 0 END) as has_signal_id,
                            SUM(CASE WHEN tl.details IS NOT NULL THEN 1 ELSE 0 END) as has_details,
                            SUM(CASE WHEN tl.details::text LIKE '%p_momentum%' THEN 1 ELSE 0 END) as has_sources
-                    FROM positions p
+                    FROM (SELECT * FROM positions WHERE status = 'closed' AND result IS NOT NULL ORDER BY closed_at DESC LIMIT 200) p
                     LEFT JOIN trade_log tl ON tl.signal_id = p.signal_id AND tl.event_type = 'SIGNAL_GENERATED'
-                    WHERE p.status = 'closed' AND p.result IS NOT NULL
-                    ORDER BY p.closed_at DESC LIMIT 200
                 """)
                 lines.append(f"  DMA diag: {dma_diag['total']} closed, {dma_diag['has_signal_id']} with signal_id, {dma_diag['has_details']} with details, {dma_diag['has_sources']} with source probs")
         except Exception as e:
