@@ -704,6 +704,90 @@ async def system_audit():
             d_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
             lines.append(f"  {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={d_wr}%)")
 
+        # === NEW DIAGNOSTICS ===
+        try:
+            async with _db.pool.acquire() as conn:
+                # 1. Repeat losers — markets where we entered 2+ times and lost multiple times
+                repeat_losers = await conn.fetch("""
+                    SELECT question, COUNT(*) as entries,
+                           SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses,
+                           SUM(pnl) as total_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY question HAVING COUNT(*) >= 2
+                    ORDER BY SUM(pnl) ASC LIMIT 10
+                """)
+                if repeat_losers:
+                    lines.append(f"\n## REPEAT ENTRIES — WORST MARKETS")
+                    for r in repeat_losers:
+                        lines.append(f"  {r['entries']}x entries, {r['losses']}L | pnl={r['total_pnl']:+.2f}$ | {r['question'][:70]}")
+
+                # 2. Short-term direction bets performance
+                short_term = await conn.fetchrow("""
+                    SELECT COUNT(*) as total,
+                           SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                           SUM(pnl) as total_pnl,
+                           AVG(pnl) as avg_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL
+                    AND (question ~* 'up or down' OR question ~* 'higher or lower' OR question ~* 'green or red'
+                         OR question ~* '\d{1,2}:\d{2}\s*(AM|PM)')
+                """)
+                if short_term and short_term['total'] > 0:
+                    st_wr = round(short_term['wins'] / short_term['total'] * 100, 1)
+                    lines.append(f"\n## SHORT-TERM DIRECTION BETS (Up/Down, 5-min)")
+                    lines.append(f"  {short_term['wins']}/{short_term['total']} ({st_wr}%) total_pnl={short_term['total_pnl']:+.2f}$ avg={short_term['avg_pnl']:+.2f}$")
+
+                # 3. Portfolio concentration — open positions grouped by theme
+                theme_conc = await conn.fetch("""
+                    SELECT theme, COUNT(*) as cnt, SUM(stake_amt) as total_stake,
+                           SUM(unrealized_pnl) as total_upnl
+                    FROM positions WHERE status='open'
+                    GROUP BY theme ORDER BY SUM(stake_amt) DESC
+                """)
+                if theme_conc:
+                    lines.append(f"\n## PORTFOLIO CONCENTRATION (open)")
+                    for r in theme_conc:
+                        lines.append(f"  {r['theme']}: {r['cnt']} pos, ${r['total_stake']:.2f} staked, uPnL={float(r['total_upnl'] or 0):+.2f}$")
+
+                # 4. WR by hour of day (UTC) — when does bot perform best
+                hourly = await conn.fetch("""
+                    SELECT EXTRACT(HOUR FROM closed_at) as hour,
+                           COUNT(*) as total,
+                           SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                           SUM(pnl) as total_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL AND closed_at IS NOT NULL
+                    GROUP BY hour ORDER BY hour
+                """)
+                if hourly:
+                    lines.append(f"\n## WR BY HOUR OF DAY (UTC)")
+                    for r in hourly:
+                        h_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {int(r['hour']):02d}:00 — {r['wins']}/{r['total']} ({h_wr}%) pnl={r['total_pnl']:+.2f}$")
+
+                # 5. Expired question dates — open positions where question date already passed
+                lines.append(f"\n## POTENTIALLY EXPIRED OPEN POSITIONS")
+                expired_count = 0
+                for p in open_pos:
+                    q = p.get("question", "")
+                    import re as _re
+                    m = _re.search(r'(?:on|by|before)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,?\s+(\d{4}))?', q, _re.IGNORECASE)
+                    if m:
+                        from datetime import datetime as _dt, timezone as _tz
+                        month_str, day_str, year_str = m.group(1), m.group(2), m.group(3)
+                        year = int(year_str) if year_str else _dt.now(_tz.utc).year
+                        try:
+                            qdate = _dt.strptime(f"{month_str} {day_str} {year}", "%B %d %Y").replace(tzinfo=_tz.utc)
+                            days_ago = (_dt.now(_tz.utc) - qdate).days
+                            if days_ago > 1:
+                                expired_count += 1
+                                lines.append(f"  ⚠ {q[:70]} | date={month_str} {day_str} ({days_ago}d ago) | stake=${p['stake_amt']:.2f}")
+                        except ValueError:
+                            pass
+                if expired_count == 0:
+                    lines.append(f"  None detected")
+
+        except Exception as e:
+            lines.append(f"\n## NEW DIAGNOSTICS ERROR: {e}")
+
         # === ARBITRAGE BOT (full) ===
         try:
             arb_stats = await _db.get_arb_stats()
