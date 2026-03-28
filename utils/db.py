@@ -232,7 +232,7 @@ class Database:
                         WHEN (side='YES' AND result='WIN') OR (side='NO' AND result='LOSS')
                         THEN 1.0 ELSE 0.0
                     END)::numeric, 3) as actual_wr
-                FROM positions WHERE status='closed'
+                FROM positions WHERE status='closed' AND outcome IN ('YES', 'NO')
                 GROUP BY bucket ORDER BY bucket
             """)
             avg_lifetime = await conn.fetchrow("""
