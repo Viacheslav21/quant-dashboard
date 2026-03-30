@@ -632,7 +632,8 @@ async def system_audit():
                     lines.append(f"\nCorrelated Losses (3+ SL in 1h):")
                     for r in corr_losses:
                         themes = [t for t in (r['themes'] or []) if t]
-                        lines.append(f"  {r['hour'].strftime('%m-%d %H:%M')}: {r['sl_count']} SLs, {r['total_pnl']:+.0f}$ | {', '.join(themes)}")
+                        pnl_str = f"{r['total_pnl']:+.0f}$" if r['total_pnl'] is not None else "?$"
+                        lines.append(f"  {r['hour'].strftime('%m-%d %H:00')}: {r['sl_count']} SLs, {pnl_str} | {', '.join(themes)}")
 
                 # Expired positions
                 expired_list = []
