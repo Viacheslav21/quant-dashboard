@@ -514,293 +514,351 @@ async def system_audit():
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
         roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
 
-        # Build text report
+        # Build structured text report
         lines = []
-        lines.append("=" * 60)
-        lines.append("QUANT ENGINE — FULL SYSTEM AUDIT")
-        lines.append("=" * 60)
-
-        lines.append("\n## OVERVIEW")
-        lines.append(f"Bankroll: ${stats['bankroll']:.2f} (start: ${start:.0f})")
-        lines.append(f"ROI: {roi:+.2f}%")
-        lines.append(f"Total P&L: ${stats['total_pnl']:+.2f}")
-        lines.append(f"Win Rate: {wr}% ({stats['wins']}W / {stats['losses']}L / {total} total)")
-        lines.append(f"Sharpe Ratio: {sharpe:.2f}")
-        lines.append(f"Max Drawdown: -{drawdown['max_dd_pct']:.1f}% (${drawdown['max_dd_abs']:.2f})")
-        lines.append(f"Streaks — Current: {streaks['cur_win']}W/{streaks['cur_loss']}L | Max: {streaks['max_win']}W/{streaks['max_loss']}L")
-        lines.append(f"Avg EV: +{stats['avg_ev']*100:.1f}% | Avg Kelly: {stats['avg_kelly']*100:.1f}%")
-        lines.append(f"Avg Position Lifetime: {analytics['avg_lifetime_hours']:.1f}h")
-        lines.append(f"EV Accuracy — Predicted: +{analytics['ev_predicted']*100:.1f}% | Actual: {analytics['ev_actual']*100:+.1f}%")
-
-        # Open positions
-        lines.append(f"\n## OPEN POSITIONS ({len(open_pos)})")
-        for p in open_pos:
-            upnl = p.get("unrealized_pnl") or 0
-            lines.append(f"  [{p['side']}] {p.get('question','')[:80]} | entry={p['side_price']*100:.1f}c now={((p.get('current_price') or p['side_price'])*100):.1f}c | uPnL={upnl:+.2f}$ | stake=${p['stake_amt']:.2f} | EV=+{p['ev']*100:.1f}% | theme={p.get('theme','?')} | tag={p.get('config_tag','?')}")
-
-        # Rolling performance
-        lines.append(f"\n## ROLLING PERFORMANCE")
-        lines.append(f"  7d: {rolling['pnl_7d']:+.2f}$ ({rolling['trades_7d']} trades, WR={rolling['wr_7d']:.1f}%)")
-        lines.append(f"  30d: {rolling['pnl_30d']:+.2f}$ ({rolling['trades_30d']} trades, WR={rolling['wr_30d']:.1f}%)")
-
-        # Best/worst
-        if best_worst.get("best"):
-            lines.append(f"\n## BEST/WORST TRADES")
-            lines.append(f"  Best: +{best_worst['best']['pnl']:.2f}$ — {best_worst['best']['question'][:70]}")
-        if best_worst.get("worst"):
-            lines.append(f"  Worst: {best_worst['worst']['pnl']:.2f}$ — {best_worst['worst']['question'][:70]}")
-
-        # Win rate by theme
-        lines.append(f"\n## WIN RATE BY THEME")
-        for r in analytics["by_theme"]:
-            t_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  {r['theme']}: {r['wins']}/{r['total']} ({t_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
-
-        # Win rate by side
-        lines.append(f"\n## WIN RATE BY SIDE")
-        for r in analytics["by_side"]:
-            s_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  {r['side']}: {r['wins']}/{r['total']} ({s_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
-
-        # Close reasons
-        lines.append(f"\n## CLOSE REASONS")
-        for r in analytics["by_reason"]:
-            lines.append(f"  {r['reason']}: {r['total']} trades, avg_pnl={r['avg_pnl']:+.2f}$")
-
-        # Config A/B
-        lines.append(f"\n## CONFIG A/B PERFORMANCE")
-        for r in analytics["by_config"]:
-            c_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  {r['config_tag']}: {r['wins']}/{r['total']} ({c_wr}%) total_pnl={r['total_pnl']:+.2f}$ avg_pnl={r['avg_pnl']:+.2f}$ avg_ev={r['avg_ev']*100:.1f}% avg_stake=${r['avg_stake']:.2f}")
-
-        # Calibration
-        lines.append(f"\n## CALIBRATION")
-        for r in analytics["calibration"]:
-            lines.append(f"  {r['bucket']}: {r['total']} trades, predicted={float(r['avg_predicted'])*100:.1f}%, actual_wr={float(r['actual_wr'])*100:.1f}%")
-
-        # Diagnostics
         diag = diagnostics
-        lines.append(f"\n## DIAGNOSTICS — Win/Loss Size")
         wl = diag.get("win_loss_size", {})
-        lines.append(f"  Avg win: ${wl.get('avg_win', 0)} ({(wl.get('avg_win_pct') or 0)*100:.1f}%) | Avg loss: ${wl.get('avg_loss', 0)} ({(wl.get('avg_loss_pct') or 0)*100:.1f}%)")
-        lines.append(f"  Breakeven WR needed: {diag.get('breakeven_wr', 0)}%")
+        breakeven = diag.get('breakeven_wr', 0)
 
-        lines.append(f"\n## DIAGNOSTICS — Exact Close Reasons (trade_log)")
-        for r in diag.get("close_reasons", []):
-            lines.append(f"  {r['event_type']}: {r['total']} trades, avg_pnl={r['avg_pnl']:+.2f}$, total_pnl={r['total_pnl']:+.2f}$, avg_stake=${r['avg_stake']:.2f}")
+        lines.append("=" * 60)
+        lines.append("QUANT ENGINE — SYSTEM AUDIT")
+        lines.append("=" * 60)
 
-        lines.append(f"\n## DIAGNOSTICS — WR by EV bucket")
-        for r in diag.get("ev_buckets", []):
-            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  EV {r['ev_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
+        # ━━━ 1. HEALTH CHECK ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("1. HEALTH CHECK")
+        lines.append("━" * 40)
+        lines.append(f"Bank: ${stats['bankroll']:.0f} (start ${start:.0f}) | ROI: {roi:+.1f}% | P&L: ${stats['total_pnl']:+.0f}")
+        lines.append(f"WR: {wr}% ({stats['wins']}W/{stats['losses']}L/{total}) | Breakeven: {breakeven}% | Gap: {wr - breakeven:+.1f}%")
+        lines.append(f"7d: {rolling['pnl_7d']:+.0f}$ ({rolling['trades_7d']} trades) | 30d: {rolling['pnl_30d']:+.0f}$ ({rolling['trades_30d']} trades)")
+        lines.append(f"Sharpe: {sharpe:.2f} | MaxDD: -{drawdown['max_dd_pct']:.1f}% | Avg lifetime: {analytics['avg_lifetime_hours']:.0f}h")
+        lines.append(f"EV predicted: +{analytics['ev_predicted']*100:.1f}% | EV actual: {analytics['ev_actual']*100:+.1f}%")
+        lines.append(f"Avg win: ${wl.get('avg_win', 0)} ({(wl.get('avg_win_pct') or 0)*100:.0f}%) | Avg loss: ${wl.get('avg_loss', 0)} ({(wl.get('avg_loss_pct') or 0)*100:.0f}%)")
+        lines.append(f"Streaks — Current: {streaks['cur_win']}W/{streaks['cur_loss']}L | Max: {streaks['max_win']}W/{streaks['max_loss']}L")
 
-        lines.append(f"\n## DIAGNOSTICS — WR by Kelly bucket")
-        for r in diag.get("kelly_buckets", []):
-            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  Kelly {r['kelly_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
-
-        lines.append(f"\n## DIAGNOSTICS — WR by Lifetime")
-        for r in diag.get("lifetime_wr", []):
-            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  {r['lifetime']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
-
-        lines.append(f"\n## DIAGNOSTICS — WR by Stake size")
-        for r in diag.get("stake_wr", []):
-            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  {r['stake_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
-
-        lines.append(f"\n## DIAGNOSTICS — TP/SL Distribution")
-        for r in diag.get("tp_sl_dist", []):
-            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  TP={r['tp']} SL={r['sl']}: {r['wins']}/{r['total']} ({b_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
-
-        lines.append(f"\n## DIAGNOSTICS — Daily WR (last 14d)")
-        for r in diag.get("daily_wr", []):
-            d_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-            lines.append(f"  {r['day']}: {r['wins']}/{r['total']} ({d_wr}%) pnl={r['pnl']:+.2f}$ avg_return={r.get('avg_return_pct', 0)*100:.1f}%")
-
-        # CLV
-        lines.append(f"\n## CLV (Closing Line Value)")
-        lines.append(f"  Avg CLV: 1h={clv['avg_clv_1h']:+.2f}% 4h={clv['avg_clv_4h']:+.2f}% 24h={clv['avg_clv_24h']:+.2f}% close={clv['avg_clv_close']:+.2f}%")
-        lines.append(f"  Positive CLV: {clv['positive_clv_pct']}% ({clv.get('n_with_clv', 0)}/{clv['total']} trades)")
-        for r in clv.get("by_theme", []):
-            lines.append(f"  CLV by theme — {r['theme']}: avg={r['avg_clv']:+.2f}% positive={r['positive_pct']}% (n={r['n']})")
-        for r in clv.get("by_tag", []):
-            lines.append(f"  CLV by config — {r['tag']}: avg={r['avg_clv']:+.2f}% positive={r['positive_pct']}% (n={r['n']})")
-
-        # DMA weights + diagnostics
-        if dma:
-            lines.append(f"\n## DMA WEIGHTS (Dynamic Model Averaging)")
-            for w in dma:
-                lines.append(f"  {w['source']}: weight={w['weight']:.4f} hits={w.get('hits',0)} misses={w.get('misses',0)} avg_likelihood={w.get('avg_likelihood',0):.4f}")
-        # DMA diagnostics — check if JOIN works
+        # Alerts
+        alerts = []
+        if wr < breakeven:
+            alerts.append(f"WR {wr}% below breakeven {breakeven}% (gap {wr - breakeven:+.1f}%)")
+        if rolling['pnl_7d'] < -30:
+            alerts.append(f"7d P&L: {rolling['pnl_7d']:+.0f}$ (heavy losses)")
+        if drawdown['max_dd_pct'] > 8:
+            alerts.append(f"Max drawdown {drawdown['max_dd_pct']:.1f}% > 8% threshold")
+        # Theme alerts from patterns
         try:
-            async with _db.pool.acquire() as conn:
-                dma_diag = await conn.fetchrow("""
-                    SELECT COUNT(*) as total,
-                           SUM(CASE WHEN p.signal_id IS NOT NULL THEN 1 ELSE 0 END) as has_signal_id,
-                           SUM(CASE WHEN tl.details IS NOT NULL THEN 1 ELSE 0 END) as has_details,
-                           SUM(CASE WHEN tl.details::text LIKE '%p_momentum%' THEN 1 ELSE 0 END) as has_sources
-                    FROM (SELECT * FROM positions WHERE status = 'closed' AND result IS NOT NULL ORDER BY closed_at DESC LIMIT 200) p
-                    LEFT JOIN trade_log tl ON tl.signal_id = p.signal_id AND tl.event_type = 'SIGNAL_GENERATED'
+            async with _db.pool.acquire() as _aconn:
+                _bad_themes = await _aconn.fetch("""
+                    SELECT category, trade_wr, ev_mult FROM patterns
+                    WHERE trade_n >= 10 AND trade_wr < 0.40 ORDER BY trade_wr ASC
                 """)
-                lines.append(f"  DMA diag: {dma_diag['total']} closed, {dma_diag['has_signal_id']} with signal_id, {dma_diag['has_details']} with details, {dma_diag['has_sources']} with source probs")
-        except Exception as e:
-            lines.append(f"  DMA diag error: {e}")
-
-        # Signal backtest / outcomes
-        lines.append(f"\n## SIGNAL BACKTEST (last 50)")
-        valid_sigs = [s for s in sig_outcomes if s.get("price_move") is not None]
-        exec_sigs = [s for s in valid_sigs if s["executed"]]
-        rej_sigs = [s for s in valid_sigs if not s["executed"]]
-        exec_right = sum(1 for s in exec_sigs if s.get("price_move") and s["price_move"] > 0)
-        rej_right = sum(1 for s in rej_sigs if s.get("price_move") and s["price_move"] > 0)
-        rej_saved = sum(1 for s in rej_sigs if not (s.get("price_move") and s["price_move"] > 0))
-        lines.append(f"  Executed signals: {len(exec_sigs)} total, {exec_right} correct ({round(exec_right/len(exec_sigs)*100,1) if exec_sigs else 0}%)")
-        lines.append(f"  Rejected signals: {len(rej_sigs)} total, {rej_right} would've been correct, {rej_saved} correctly avoided")
-        for s in sig_outcomes[:20]:
-            pm = s.get("price_move")
-            pm_str = f"move={pm:+.3f}" if pm is not None else "move=?"
-            lines.append(f"  [{s['side']}] {s.get('question','')[:55]} | EV={s['ev']*100:.1f}% kelly={s.get('kelly',0)*100:.1f}% | {pm_str} | exec={'Y' if s['executed'] else 'N'} src={s.get('source','?')}")
-
-        # Market metrics (active markets)
-        if market_metrics:
-            lines.append(f"\n## ACTIVE MARKET METRICS (top {len(market_metrics)})")
-            for m in market_metrics:
-                lines.append(f"  {m.get('question','')[:55]} | price={m.get('yes_price',0)*100:.1f}c vol={m.get('volatility',0):.4f} momentum={m.get('momentum',0):.4f} vol_ratio={m.get('vol_ratio',0):.2f} | theme={m.get('theme','?')}")
-
-        # Config history
-        if config_hist:
-            lines.append(f"\n## CONFIG HISTORY ({len(config_hist)} versions)")
-            for c in config_hist[:5]:
-                params = c.get("params", {})
-                if isinstance(params, str):
-                    try:
-                        params = json.loads(params)
-                    except Exception:
-                        params = {}
-                if params:
-                    param_str = " ".join(f"{k}={v}" for k, v in params.items())
-                else:
-                    param_str = "—"
-                lines.append(f"  {c.get('tag','?')} ({c.get('created_at','?')}): {param_str}")
-
-        # Patterns (learned base rates)
-        try:
-            async with _db.pool.acquire() as conn:
-                patterns = await conn.fetch("""
-                    SELECT category, base_rate, volume_signal, prospect_factor,
-                           trade_n, trade_wr, trade_roi, kelly_mult, ev_mult, updated_at
-                    FROM patterns ORDER BY trade_n DESC NULLS LAST
-                """)
-            if patterns:
-                lines.append(f"\n## LEARNED PATTERNS ({len(patterns)} themes)")
-                for p in patterns:
-                    p = dict(p)
-                    lines.append(f"  {p.get('category','?')}: base_rate={float(p.get('base_rate') or 0):.3f} vol_signal={float(p.get('volume_signal') or 0):.3f} prospect={float(p.get('prospect_factor') or 0):.3f} | trades={p.get('trade_n',0)} WR={float(p.get('trade_wr') or 0)*100:.1f}% ROI={float(p.get('trade_roi') or 0)*100:.1f}% kelly_mult={float(p.get('kelly_mult') or 1):.2f} ev_mult={float(p.get('ev_mult') or 1):.2f}")
+                for bt in _bad_themes:
+                    alerts.append(f"Theme '{bt['category']}' WR={float(bt['trade_wr'])*100:.0f}% ev_mult={float(bt['ev_mult']):.1f}")
         except Exception:
             pass
+        if alerts:
+            lines.append(f"\nALERTS:")
+            for a in alerts:
+                lines.append(f"  ! {a}")
+        else:
+            lines.append(f"\nNo alerts.")
 
-        # Recent signals
-        lines.append(f"\n## RECENT SIGNALS (last 30)")
-        for s in signals:
-            ml_str = f" ML={s['p_ml']*100:.0f}%" if s.get('p_ml') else ""
-            lines.append(f"  [{s['side']}] {s.get('question','')[:60]} | market={s['p_market']*100:.1f}c pTrue={s['p_final']*100:.1f}c | EV=+{s['ev']*100:.1f}% KL={s['kl']:.3f}{ml_str} | src={s.get('source','?')} exec={'Y' if s.get('executed') else 'N'}")
+        # ━━━ 2. PERFORMANCE ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("2. PERFORMANCE")
+        lines.append("━" * 40)
 
-        # Config
-        lines.append(f"\n## CURRENT CONFIG")
-        lines.append(f"  BANKROLL={start} MIN_EV={_config['MIN_EV']} MIN_KL={_config['MIN_KL']} MAX_KELLY_FRAC={_config['MAX_KELLY_FRAC']}")
-        lines.append(f"  TAKE_PROFIT={_config['TAKE_PROFIT_PCT']} STOP_LOSS={_config['STOP_LOSS_PCT']}")
-
-        # Daily P&L
-        lines.append(f"\n## DAILY P&L (last 14d)")
+        lines.append(f"\nDaily P&L (last 14d):")
         for r in analytics["daily_pnl"]:
             d_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
             lines.append(f"  {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={d_wr}%)")
 
-        # === NEW DIAGNOSTICS ===
+        lines.append(f"\nConfig A/B:")
+        for r in sorted(analytics["by_config"], key=lambda x: x['total_pnl'], reverse=True):
+            c_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['config_tag']}: {r['wins']}/{r['total']} ({c_wr}%) pnl={r['total_pnl']:+.0f}$ avg={r['avg_pnl']:+.2f}$ stake=${r['avg_stake']:.0f}")
+
+        lines.append(f"\nBy Theme:")
+        for r in analytics["by_theme"]:
+            t_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            flag = " !" if t_wr < 40 and r['total'] >= 10 else ""
+            lines.append(f"  {r['theme']}: {r['wins']}/{r['total']} ({t_wr}%) avg={r['avg_pnl']:+.2f}${flag}")
+
+        lines.append(f"\nBy Side:")
+        for r in analytics["by_side"]:
+            s_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['side']}: {r['wins']}/{r['total']} ({s_wr}%) avg={r['avg_pnl']:+.2f}$")
+
+        lines.append(f"\nClose Reasons:")
+        for r in diag.get("close_reasons", []):
+            lines.append(f"  {r['event_type']}: {r['total']} trades, avg={r['avg_pnl']:+.2f}$, total={r['total_pnl']:+.0f}$")
+
+        if best_worst.get("best"):
+            lines.append(f"\nBest:  +{best_worst['best']['pnl']:.2f}$ — {best_worst['best']['question'][:60]}")
+        if best_worst.get("worst"):
+            lines.append(f"Worst: {best_worst['worst']['pnl']:.2f}$ — {best_worst['worst']['question'][:60]}")
+
+        # ━━━ 3. RISK ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("3. RISK & PORTFOLIO")
+        lines.append("━" * 40)
+
+        # Portfolio concentration
         try:
             async with _db.pool.acquire() as conn:
-                # 1. Repeat losers — markets where we entered 2+ times and lost multiple times
-                repeat_losers = await conn.fetch("""
-                    SELECT question, COUNT(*) as entries,
-                           SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses,
-                           SUM(pnl) as total_pnl
-                    FROM positions WHERE status='closed' AND result IS NOT NULL
-                    GROUP BY question HAVING COUNT(*) >= 2
-                    ORDER BY SUM(pnl) ASC LIMIT 10
-                """)
-                if repeat_losers:
-                    lines.append(f"\n## REPEAT ENTRIES — WORST MARKETS")
-                    for r in repeat_losers:
-                        lines.append(f"  {r['entries']}x entries, {r['losses']}L | pnl={r['total_pnl']:+.2f}$ | {r['question'][:70]}")
-
-                # 2. Short-term direction bets performance
-                short_term = await conn.fetchrow("""
-                    SELECT COUNT(*) as total,
-                           SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                           SUM(pnl) as total_pnl,
-                           AVG(pnl) as avg_pnl
-                    FROM positions WHERE status='closed' AND result IS NOT NULL
-                    AND (question ~* 'up or down' OR question ~* 'higher or lower' OR question ~* 'green or red'
-                         OR question ~* '\d{1,2}:\d{2}\s*(AM|PM)')
-                """)
-                if short_term and short_term['total'] > 0:
-                    st_wr = round(short_term['wins'] / short_term['total'] * 100, 1)
-                    lines.append(f"\n## SHORT-TERM DIRECTION BETS (Up/Down, 5-min)")
-                    lines.append(f"  {short_term['wins']}/{short_term['total']} ({st_wr}%) total_pnl={short_term['total_pnl']:+.2f}$ avg={short_term['avg_pnl']:+.2f}$")
-
-                # 3. Portfolio concentration — open positions grouped by theme
                 theme_conc = await conn.fetch("""
-                    SELECT theme, COUNT(*) as cnt, SUM(stake_amt) as total_stake,
-                           SUM(unrealized_pnl) as total_upnl
+                    SELECT theme, COUNT(*) as cnt, ROUND(SUM(stake_amt)::numeric, 0) as total_stake,
+                           ROUND(SUM(unrealized_pnl)::numeric, 2) as total_upnl
                     FROM positions WHERE status='open'
                     GROUP BY theme ORDER BY SUM(stake_amt) DESC
                 """)
                 if theme_conc:
-                    lines.append(f"\n## PORTFOLIO CONCENTRATION (open)")
+                    lines.append(f"\nPortfolio ({len(open_pos)} positions):")
                     for r in theme_conc:
-                        lines.append(f"  {r['theme']}: {r['cnt']} pos, ${r['total_stake']:.2f} staked, uPnL={float(r['total_upnl'] or 0):+.2f}$")
+                        lines.append(f"  {r['theme']}: {r['cnt']} pos, ${r['total_stake']} staked, uPnL={float(r['total_upnl'] or 0):+.2f}$")
 
-                # 4. WR by hour of day (UTC) — when does bot perform best
-                hourly = await conn.fetch("""
-                    SELECT EXTRACT(HOUR FROM closed_at) as hour,
-                           COUNT(*) as total,
-                           SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                           SUM(pnl) as total_pnl
-                    FROM positions WHERE status='closed' AND result IS NOT NULL AND closed_at IS NOT NULL
-                    GROUP BY hour ORDER BY hour
+                # Correlated loss events
+                corr_losses = await conn.fetch("""
+                    SELECT DATE_TRUNC('hour', created_at) as hour,
+                           COUNT(*) as sl_count,
+                           ROUND(SUM((details->>'pnl')::numeric), 2) as total_pnl,
+                           ARRAY_AGG(DISTINCT details->>'theme') as themes
+                    FROM trade_log
+                    WHERE event_type = 'CLOSE_SL' AND created_at > NOW() - INTERVAL '7 days'
+                    GROUP BY DATE_TRUNC('hour', created_at)
+                    HAVING COUNT(*) >= 3
+                    ORDER BY SUM((details->>'pnl')::numeric) ASC LIMIT 5
                 """)
-                if hourly:
-                    lines.append(f"\n## WR BY HOUR OF DAY (UTC)")
-                    for r in hourly:
-                        h_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"  {int(r['hour']):02d}:00 — {r['wins']}/{r['total']} ({h_wr}%) pnl={r['total_pnl']:+.2f}$")
+                if corr_losses:
+                    lines.append(f"\nCorrelated Losses (3+ SL in 1h):")
+                    for r in corr_losses:
+                        themes = [t for t in (r['themes'] or []) if t]
+                        lines.append(f"  {r['hour'].strftime('%m-%d %H:%M')}: {r['sl_count']} SLs, {r['total_pnl']:+.0f}$ | {', '.join(themes)}")
 
-                # 5. Expired question dates — open positions where question date already passed
-                lines.append(f"\n## POTENTIALLY EXPIRED OPEN POSITIONS")
-                expired_count = 0
+                # Expired positions
+                expired_list = []
                 for p in open_pos:
                     q = p.get("question", "")
                     import re as _re
-                    m = _re.search(r'(?:on|by|before)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,?\s+(\d{4}))?', q, _re.IGNORECASE)
-                    if m:
+                    _m = _re.search(r'(?:on|by|before)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,?\s+(\d{4}))?', q, _re.IGNORECASE)
+                    if _m:
                         from datetime import datetime as _dt, timezone as _tz
-                        month_str, day_str, year_str = m.group(1), m.group(2), m.group(3)
-                        year = int(year_str) if year_str else _dt.now(_tz.utc).year
+                        _ms, _ds, _ys = _m.group(1), _m.group(2), _m.group(3)
+                        _yr = int(_ys) if _ys else _dt.now(_tz.utc).year
                         try:
-                            qdate = _dt.strptime(f"{month_str} {day_str} {year}", "%B %d %Y").replace(tzinfo=_tz.utc)
-                            days_ago = (_dt.now(_tz.utc) - qdate).days
-                            if days_ago > 1:
-                                expired_count += 1
-                                lines.append(f"  ⚠ {q[:70]} | date={month_str} {day_str} ({days_ago}d ago) | stake=${p['stake_amt']:.2f}")
+                            _qd = _dt.strptime(f"{_ms} {_ds} {_yr}", "%B %d %Y").replace(tzinfo=_tz.utc)
+                            _da = (_dt.now(_tz.utc) - _qd).days
+                            if _da > 1:
+                                expired_list.append(f"  ! {q[:60]} ({_da}d ago, ${p['stake_amt']:.0f})")
                         except ValueError:
                             pass
-                if expired_count == 0:
-                    lines.append(f"  None detected")
-
+                if expired_list:
+                    lines.append(f"\nExpired Open Positions:")
+                    lines.extend(expired_list)
         except Exception as e:
-            lines.append(f"\n## NEW DIAGNOSTICS ERROR: {e}")
+            lines.append(f"\n  Risk section error: {e}")
+
+        # ━━━ 4. SIGNAL QUALITY ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("4. SIGNAL QUALITY")
+        lines.append("━" * 40)
+
+        lines.append(f"\nCalibration (resolved only):")
+        for r in analytics["calibration"]:
+            lines.append(f"  {r['bucket']}: {r['total']} trades, predicted={float(r['avg_predicted'])*100:.1f}%, actual={float(r['actual_wr'])*100:.1f}%")
+
+        lines.append(f"\nDMA Weights:")
+        if dma:
+            for w in sorted(dma, key=lambda x: -x['weight']):
+                total = w.get('hits', 0) + w.get('misses', 0)
+                acc = f"{w['hits']}/{total}" if total > 0 else "no data"
+                lines.append(f"  {w['source']:15s} w={w['weight']:.2f} | {acc}")
+        try:
+            async with _db.pool.acquire() as conn:
+                dma_diag = await conn.fetchrow("""
+                    SELECT COUNT(*) as total,
+                           SUM(CASE WHEN p.signal_id IS NOT NULL THEN 1 ELSE 0 END) as has_signal_id
+                    FROM (SELECT * FROM positions WHERE status = 'closed' AND result IS NOT NULL ORDER BY closed_at DESC LIMIT 200) p
+                    LEFT JOIN trade_log tl ON tl.signal_id = p.signal_id AND tl.event_type = 'SIGNAL_GENERATED'
+                """)
+                lines.append(f"  DMA data: {dma_diag['has_signal_id']}/{dma_diag['total']} positions with source details")
+        except Exception:
+            pass
+
+        lines.append(f"\nCLV: 1h={clv['avg_clv_1h']:+.0f}% 4h={clv['avg_clv_4h']:+.0f}% 24h={clv['avg_clv_24h']:+.0f}% close={clv['avg_clv_close']:+.0f}% | Positive: {clv['positive_clv_pct']}%")
+
+        # Evidence source accuracy
+        try:
+            async with _db.pool.acquire() as conn:
+                source_accuracy = await conn.fetch("""
+                    SELECT key as source, COUNT(*) as total,
+                           SUM(CASE WHEN correct THEN 1 ELSE 0 END) as hits,
+                           ROUND(AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END)::numeric, 3) as accuracy
+                    FROM (
+                        SELECT key, CASE
+                                WHEN p.side = 'YES' AND (value::float > 0.5) = (p.result = 'WIN') THEN true
+                                WHEN p.side = 'NO' AND (value::float < 0.5) = (p.result = 'WIN') THEN true
+                                ELSE false END as correct
+                        FROM (SELECT p2.id, p2.side, p2.result, tl.details
+                              FROM positions p2
+                              JOIN trade_log tl ON tl.signal_id = p2.signal_id AND tl.event_type = 'SIGNAL_GENERATED'
+                              WHERE p2.status = 'closed' AND p2.result IS NOT NULL AND tl.details IS NOT NULL) p,
+                        jsonb_each_text(p.details) kv
+                        WHERE kv.key IN ('p_history','p_momentum','p_long_mom','p_contrarian','p_vol_trend','p_arb','p_book','p_flb')
+                            AND kv.value IS NOT NULL AND kv.value != 'null' AND kv.value::float > 0 AND kv.value::float < 1
+                    ) sub GROUP BY key HAVING COUNT(*) >= 5 ORDER BY accuracy DESC
+                """)
+                if source_accuracy:
+                    lines.append(f"\nSource Accuracy:")
+                    for r in source_accuracy:
+                        lines.append(f"  {r['source']:15s} {r['hits']}/{r['total']} ({float(r['accuracy'])*100:.0f}%)")
+        except Exception:
+            pass
+
+        lines.append(f"\nSignal Backtest (last 50):")
+        valid_sigs = [s for s in sig_outcomes if s.get("price_move") is not None]
+        exec_sigs = [s for s in valid_sigs if s["executed"]]
+        rej_sigs = [s for s in valid_sigs if not s["executed"]]
+        exec_right = sum(1 for s in exec_sigs if s.get("price_move") and s["price_move"] > 0)
+        rej_saved = sum(1 for s in rej_sigs if not (s.get("price_move") and s["price_move"] > 0))
+        lines.append(f"  Executed: {exec_right}/{len(exec_sigs)} correct ({round(exec_right/len(exec_sigs)*100) if exec_sigs else 0}%) | Rejected: {rej_saved}/{len(rej_sigs)} correctly avoided")
+
+        # ━━━ 5. DIAGNOSTICS ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("5. DIAGNOSTICS")
+        lines.append("━" * 40)
+
+        lines.append(f"\nWR by EV:")
+        for r in diag.get("ev_buckets", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  EV {r['ev_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) total={r['total_pnl']:+.0f}$")
+
+        lines.append(f"\nWR by Lifetime:")
+        for r in diag.get("lifetime_wr", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['lifetime']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$")
+
+        lines.append(f"\nWR by Stake:")
+        for r in diag.get("stake_wr", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['stake_bucket']}: {r['wins']}/{r['total']} ({b_wr}%) total={r['total_pnl']:+.0f}$")
+
+        lines.append(f"\nTP/SL Distribution:")
+        for r in diag.get("tp_sl_dist", []):
+            b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  TP={r['tp']} SL={r['sl']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$")
+
+        # Grace period, theme momentum, signal journey, hourly, liquidity
+        try:
+            async with _db.pool.acquire() as conn:
+                grace_stats = await conn.fetch("""
+                    SELECT CASE
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 1 THEN 'stopped_<1h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 BETWEEN 1 AND 3 THEN 'survived_1-3h'
+                        ELSE 'survived_3h+' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL AND closed_at IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if grace_stats:
+                    lines.append(f"\nGrace Period:")
+                    for r in grace_stats:
+                        if r['bucket'] and r['total'] > 0:
+                            g_wr = round(r['wins'] / r['total'] * 100, 1)
+                            lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({g_wr}%) total={r['total_pnl']:+.0f}$")
+
+                theme_momentum = await conn.fetch("""
+                    WITH recent AS (
+                        SELECT theme, COUNT(*) as n, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END)::float/NULLIF(COUNT(*),0) as wr
+                        FROM positions WHERE status='closed' AND result IS NOT NULL AND closed_at > NOW()-INTERVAL '7 days'
+                        GROUP BY theme HAVING COUNT(*) >= 3),
+                    previous AS (
+                        SELECT theme, COUNT(*) as n, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END)::float/NULLIF(COUNT(*),0) as wr
+                        FROM positions WHERE status='closed' AND result IS NOT NULL
+                            AND closed_at BETWEEN NOW()-INTERVAL '14 days' AND NOW()-INTERVAL '7 days'
+                        GROUP BY theme HAVING COUNT(*) >= 3)
+                    SELECT r.theme, r.n as rn, ROUND(r.wr::numeric,3) as rwr, p.n as pn, ROUND(p.wr::numeric,3) as pwr
+                    FROM recent r LEFT JOIN previous p ON r.theme=p.theme ORDER BY r.n DESC
+                """)
+                if theme_momentum:
+                    lines.append(f"\nTheme Momentum (7d vs prev 7d):")
+                    for r in theme_momentum:
+                        rwr = float(r['rwr'] or 0) * 100
+                        pwr = float(r['pwr'] or 0) * 100 if r['pwr'] else None
+                        arrow = '↑' if pwr and rwr - pwr > 3 else '↓' if pwr and rwr - pwr < -3 else '→'
+                        prev_str = f"{pwr:.0f}%→" if pwr else ""
+                        lines.append(f"  {r['theme']}: {prev_str}{rwr:.0f}% {arrow} ({r['rn']} trades)")
+
+                journey = await conn.fetchrow("""
+                    SELECT
+                        ROUND(AVG(CASE WHEN event_type='CLOSE_SL' THEN EXTRACT(EPOCH FROM (created_at-(SELECT opened_at FROM positions WHERE id=trade_log.position_id)))/3600 END)::numeric,1) as sl,
+                        ROUND(AVG(CASE WHEN event_type='CLOSE_TP' THEN EXTRACT(EPOCH FROM (created_at-(SELECT opened_at FROM positions WHERE id=trade_log.position_id)))/3600 END)::numeric,1) as tp,
+                        ROUND(AVG(CASE WHEN event_type='CLOSE_TRAILING_TP' THEN EXTRACT(EPOCH FROM (created_at-(SELECT opened_at FROM positions WHERE id=trade_log.position_id)))/3600 END)::numeric,1) as trail,
+                        ROUND(AVG(CASE WHEN event_type='CLOSE_RESOLVED' THEN EXTRACT(EPOCH FROM (created_at-(SELECT opened_at FROM positions WHERE id=trade_log.position_id)))/3600 END)::numeric,1) as resolved
+                    FROM trade_log WHERE event_type IN ('CLOSE_SL','CLOSE_TP','CLOSE_TRAILING_TP','CLOSE_RESOLVED') AND created_at > NOW()-INTERVAL '14 days'
+                """)
+                if journey:
+                    lines.append(f"\nSignal Journey (avg hours): SL={journey['sl'] or '?'}h | TP={journey['tp'] or '?'}h | Trail={journey['trail'] or '?'}h | Resolved={journey['resolved'] or '?'}h")
+
+                # Repeat losers
+                repeat_losers = await conn.fetch("""
+                    SELECT question, COUNT(*) as entries, SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses, SUM(pnl) as total_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY question HAVING COUNT(*) >= 2 ORDER BY SUM(pnl) ASC LIMIT 5
+                """)
+                if repeat_losers:
+                    lines.append(f"\nRepeat Losers:")
+                    for r in repeat_losers:
+                        lines.append(f"  {r['entries']}x {r['losses']}L {r['total_pnl']:+.0f}$ | {r['question'][:60]}")
+
+                # Short-term bets
+                short_term = await conn.fetchrow("""
+                    SELECT COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins, SUM(pnl) as total_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL
+                    AND (question ~* 'up or down' OR question ~* 'higher or lower' OR question ~* E'\\\\d{1,2}:\\\\d{2}\\\\s*(AM|PM)')
+                """)
+                if short_term and short_term['total'] and short_term['total'] > 0:
+                    st_wr = round(short_term['wins'] / short_term['total'] * 100)
+                    lines.append(f"\nShort-term Bets: {short_term['wins']}/{short_term['total']} ({st_wr}%) total={short_term['total_pnl']:+.0f}$")
+        except Exception as e:
+            lines.append(f"\n  Diagnostics error: {e}")
+
+        # ━━━ 6. CONFIG & PATTERNS ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("6. CONFIG & PATTERNS")
+        lines.append("━" * 40)
+
+        lines.append(f"\nCurrent: BANKROLL={start} MIN_EV={_config['MIN_EV']} MIN_KL={_config['MIN_KL']} MAX_KELLY={_config['MAX_KELLY_FRAC']} TP={_config['TAKE_PROFIT_PCT']} SL={_config['STOP_LOSS_PCT']}")
+
+        try:
+            async with _db.pool.acquire() as conn:
+                patterns = await conn.fetch("""
+                    SELECT category, trade_n, trade_wr, trade_roi, kelly_mult, ev_mult
+                    FROM patterns WHERE trade_n > 0 ORDER BY trade_n DESC
+                """)
+            if patterns:
+                lines.append(f"\nTheme Calibration:")
+                for p in patterns:
+                    p = dict(p)
+                    lines.append(f"  {p['category']:12s} n={p['trade_n']:3d} WR={float(p['trade_wr'] or 0)*100:.0f}% ROI={float(p['trade_roi'] or 0)*100:+.1f}% kelly={float(p['kelly_mult'] or 1):.2f} ev={float(p['ev_mult'] or 1):.2f}")
+        except Exception:
+            pass
+
+        # Open positions (compact)
+        lines.append(f"\nOpen Positions ({len(open_pos)}):")
+        # Group by theme
+        from collections import defaultdict as _ddict
+        _by_theme = _ddict(list)
+        for p in open_pos:
+            _by_theme[p.get('theme', '?')].append(p)
+        for theme in sorted(_by_theme, key=lambda t: -sum(p['stake_amt'] for p in _by_theme[t])):
+            positions = _by_theme[theme]
+            total_stake = sum(p['stake_amt'] for p in positions)
+            total_upnl = sum((p.get('unrealized_pnl') or 0) for p in positions)
+            lines.append(f"  [{theme}] {len(positions)} pos, ${total_stake:.0f} staked, uPnL={total_upnl:+.2f}$")
+            for p in positions:
+                upnl = p.get("unrealized_pnl") or 0
+                lines.append(f"    {p['side']} {p.get('question','')[:55]} | {p['side_price']*100:.0f}c→{((p.get('current_price') or p['side_price'])*100):.0f}c | {upnl:+.2f}$ | ${p['stake_amt']:.0f}")
 
         # === ARBITRAGE BOT (full) ===
         try:
@@ -961,72 +1019,6 @@ async def api_diagnostics():
         return Response(to_json(diag), media_type="application/json")
     except Exception as e:
         log.warning(f"[DASHBOARD] Diagnostics error: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-@app.post("/api/run-analysis")
-async def run_analysis(request: Request):
-    """Run Sonnet analysis on demand via dashboard button."""
-    if not _check_api_secret(request):
-        return JSONResponse({"error": "API secret required", "need_secret": True}, status_code=403)
-    try:
-        from anthropic import AsyncAnthropic
-        client = AsyncAnthropic(api_key=_config["ANTHROPIC_KEY"])
-
-        data = await _db.get_analytics()
-        stats = await _db.get_stats()
-        open_pos = await _db.get_open_positions()
-        start = _config["BANKROLL"]
-
-        summary = (
-            f"=== QUANT ENGINE DAILY STATS ===\n"
-            f"Bankroll: ${stats['bankroll']:.2f} (start: ${start:.0f}, ROI: {(stats['bankroll']-start)/start*100:+.1f}%)\n"
-            f"P&L: ${stats['total_pnl']:+.2f} | WR: {stats['wins']}W/{stats['losses']}L\n"
-            f"Open positions: {len(open_pos)} | Avg EV: {stats['avg_ev']*100:.1f}% | Avg Kelly: {stats['avg_kelly']*100:.1f}%\n\n"
-        )
-        for section, key, fields in [
-            ("WIN RATE BY THEME", "by_theme", "theme"),
-            ("WIN RATE BY SIDE", "by_side", "side"),
-        ]:
-            summary += f"=== {section} ===\n"
-            for r in data[key]:
-                wr = round(r['wins'] / r['total'] * 100) if r['total'] > 0 else 0
-                summary += f"  {r[fields]}: {r['wins']}/{r['total']} ({wr}%) avg_pnl={float(r['avg_pnl']):+.2f}\n"
-            summary += "\n"
-
-        summary += "=== CALIBRATION ===\n"
-        for r in data["calibration"]:
-            summary += f"  {r['bucket']}: {r['total']} trades, predicted={float(r['avg_predicted'])*100:.1f}%, actual={float(r['actual_wr'])*100:.1f}%\n"
-
-        summary += (
-            f"\n=== EV ACCURACY ===\n"
-            f"  Predicted EV: +{data['ev_predicted']*100:.1f}% | Actual return: {data['ev_actual']*100:+.1f}%\n"
-            f"  Avg position lifetime: {data['avg_lifetime_hours']:.1f}h\n"
-            f"\n=== CLOSE REASONS ===\n"
-        )
-        for r in data["by_reason"]:
-            summary += f"  {r['reason']}: {r['total']} trades, avg_pnl={float(r['avg_pnl']):+.2f}\n"
-
-        summary += (
-            f"\n=== CONFIG ===\n"
-            f"  MIN_EV={_config['MIN_EV']} MIN_KL={_config['MIN_KL']} MAX_KELLY_FRAC={_config['MAX_KELLY_FRAC']}\n"
-            f"  TAKE_PROFIT={_config['TAKE_PROFIT_PCT']} STOP_LOSS={_config['STOP_LOSS_PCT']}\n"
-        )
-
-        r = await client.messages.create(
-            model="claude-sonnet-4-5", max_tokens=800,
-            system="""You are a quantitative trading analyst reviewing a prediction market bot's performance.
-Give specific, actionable recommendations. Be direct and concise.
-Focus on: what's working, what's not, config changes to suggest (with specific numbers), and risks.
-Reply in English, max 500 words. Use plain text (no markdown).""",
-            messages=[{"role": "user", "content": summary}],
-        )
-        analysis = "".join(b.text for b in r.content if hasattr(b, "text"))
-        if analysis:
-            return JSONResponse({"analysis": analysis})
-        return JSONResponse({"error": "Analysis returned empty"}, status_code=500)
-    except Exception as e:
-        log.error(f"[DASHBOARD] Analysis error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

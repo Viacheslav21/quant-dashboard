@@ -206,13 +206,12 @@
 <!-- AI Analysis -->
 <div class="panel">
   <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
-    <h2>AI Analysis (Sonnet)</h2>
+    <h2>System Audit</h2>
     <div style="display:flex;gap:8px">
-      <button id="runAudit" onclick="runSystemAudit()" style="padding:8px 20px;background:#8B5CF6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px" title="Generate full system report for Claude analysis">Full Audit</button>
-      <button id="runAnalysis" onclick="runSonnetAnalysis()" style="padding:8px 20px;background:#3B82F6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">Run Analysis</button>
+      <button id="runAudit" onclick="runSystemAudit()" style="padding:8px 20px;background:#8B5CF6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px" title="Generate full system report">Full Audit</button>
     </div>
   </div>
-  <pre id="analysisResult" style="white-space:pre-wrap;color:#E5E7EB;font-size:13px;padding:12px;background:#1a1f2e;border-radius:6px;min-height:40px">Click "Run Analysis" for Sonnet recommendations or "Full Audit" to generate a complete system report for Claude</pre>
+  <pre id="analysisResult" style="white-space:pre-wrap;color:#E5E7EB;font-size:13px;padding:12px;background:#1a1f2e;border-radius:6px;min-height:40px">Click "Full Audit" to generate a structured system report</pre>
 </div>
 
 <!-- CLV (Closing Line Value) -->
@@ -450,44 +449,6 @@ if(distData.labels.length>0){
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y+' trades'}}},
       scales:{x:{ticks:{...tickOpts,maxRotation:45},grid:gridOpts},y:{ticks:tickOpts,grid:gridOpts}}}
   });
-}
-
-// AI Analysis with API secret support
-async function runSonnetAnalysis(){
-  const btn=document.getElementById('runAnalysis');
-  const result=document.getElementById('analysisResult');
-  btn.disabled=true;btn.textContent='Running...';btn.style.background='#6B7280';
-  result.textContent='Requesting Sonnet analysis...';result.style.color='#E5E7EB';
-  try{
-    let r=await fetch('/api/run-analysis',{method:'POST'});
-    let data=await r.json();
-    // If API secret is required, prompt user
-    if(data.need_secret){
-      const secret=prompt('Enter API Secret for AI analysis:');
-      if(!secret){
-        result.textContent='Cancelled.';
-        btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
-        return;
-      }
-      // Verify and save cookie
-      const authR=await fetch('/api/auth/api-secret',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({secret:secret})
-      });
-      const authData=await authR.json();
-      if(!authData.ok){
-        result.textContent='Invalid API secret.';result.style.color='#EF4444';
-        btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
-        return;
-      }
-      // Retry with cookie now set
-      r=await fetch('/api/run-analysis',{method:'POST'});
-      data=await r.json();
-    }
-    if(data.analysis){result.textContent=data.analysis}
-    else{result.textContent='Error: '+(data.error||'Unknown error');result.style.color='#EF4444'}
-  }catch(e){result.textContent='Request failed: '+e.message;result.style.color='#EF4444'}
-  btn.disabled=false;btn.textContent='Run Analysis';btn.style.background='#3B82F6';
 }
 
 // Full System Audit
