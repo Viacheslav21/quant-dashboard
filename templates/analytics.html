@@ -193,7 +193,7 @@
       <tr>
         <td>{{ r.day }}</td>
         <td class="num">{{ r.trades }}</td>
-        <td class="num">{{ r.wins }}/{{ r.trades }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
+        <td class="num">{{ r.wins }}/{{ r.trades - r.wins }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.pnl|float) }}">{{ "%+.2f"|format(r.pnl|float) }}$</td>
       </tr>
       {% else %}
