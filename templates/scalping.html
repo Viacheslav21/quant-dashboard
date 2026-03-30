@@ -83,7 +83,7 @@
       <tr>
         <td>{{ r.theme }}</td>
         <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
         <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
       </tr>
@@ -100,7 +100,7 @@
       <tr>
         <td>{{ r.reason }}</td>
         <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
       </tr>
       {% else %}
@@ -119,7 +119,7 @@
       <tr>
         <td class="{{ 'yes' if r.side == 'YES' else 'no' }}">{{ r.side }}</td>
         <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
       </tr>
       {% else %}
@@ -135,7 +135,7 @@
       <tr>
         <td>{{ r.day }}</td>
         <td class="num">{{ r.trades }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.trades) }}">{{ r.wins }}/{{ r.trades }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.trades) }}">{{ r.wins }}/{{ r.trades - r.wins }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.pnl|float) }}">{{ "%+.2f"|format(r.pnl|float) }}$</td>
       </tr>
       {% else %}
@@ -143,6 +143,17 @@
       {% endfor %}
     </table>
   </div>
+</div>
+
+<!-- Audit -->
+<div class="panel">
+  <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+    <h2>System Audit</h2>
+    <div style="display:flex;gap:8px">
+      <button id="runMicroAudit" onclick="runMicroAudit()" style="padding:8px 20px;background:#06B6D4;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px" title="Generate full micro report">Full Audit</button>
+    </div>
+  </div>
+  <pre id="microAuditResult" style="white-space:pre-wrap;color:#E5E7EB;font-size:13px;padding:12px;background:#1a1f2e;border-radius:6px;min-height:40px">Click "Full Audit" to generate a structured micro scalper report</pre>
 </div>
 
 <!-- Closed history -->
@@ -208,6 +219,26 @@ if(pnlData.length > 0){
       }
     }
   });
+}
+
+// Full Micro Audit
+async function runMicroAudit(){
+  const btn=document.getElementById('runMicroAudit');
+  const result=document.getElementById('microAuditResult');
+  btn.disabled=true;btn.textContent='Loading...';btn.style.background='#6B7280';
+  result.textContent='Generating full micro audit...';result.style.color='#E5E7EB';
+  try{
+    const r=await fetch('/api/micro-audit');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const text=await r.text();
+    result.textContent=text;
+    await navigator.clipboard.writeText(text);
+    btn.textContent='Copied!';btn.style.background='#10B981';
+    setTimeout(()=>{btn.disabled=false;btn.textContent='Full Audit';btn.style.background='#06B6D4'},2000);
+  }catch(e){
+    result.textContent='Error: '+e.message;result.style.color='#EF4444';
+    btn.disabled=false;btn.textContent='Full Audit';btn.style.background='#06B6D4';
+  }
 }
 </script>
 {% endblock %}

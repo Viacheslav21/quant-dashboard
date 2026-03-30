@@ -972,6 +972,256 @@ async def system_audit():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/api/micro-audit")
+async def micro_audit():
+    """Full micro (scalping) bot audit — comprehensive data dump."""
+    try:
+        stats = await _db.get_micro_stats()
+        open_pos = await _db.get_micro_open_positions()
+        closed_all = await _db.get_micro_closed_positions(limit=9999, offset=0)
+        analytics = await _db.get_micro_analytics()
+        pnl_data = await _db.get_micro_cumulative_pnl()
+
+        start = 500.0
+        total = stats["wins"] + stats["losses"]
+        wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
+        roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
+
+        sharpe = compute_sharpe_ratio(closed_all)
+        drawdown = compute_max_drawdown(closed_all, start)
+        streaks = compute_streaks(closed_all)
+
+        # Win/loss sizes
+        wins_pnl = [float(t.get("pnl") or 0) for t in closed_all if t.get("result") == "WIN"]
+        losses_pnl = [float(t.get("pnl") or 0) for t in closed_all if t.get("result") == "LOSS"]
+        avg_win = round(sum(wins_pnl) / len(wins_pnl), 2) if wins_pnl else 0
+        avg_loss = round(sum(losses_pnl) / len(losses_pnl), 2) if losses_pnl else 0
+
+        lines = []
+        lines.append("=" * 60)
+        lines.append("MICRO SCALPER — FULL AUDIT")
+        lines.append("=" * 60)
+
+        # ━━━ 1. HEALTH CHECK ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("1. HEALTH CHECK")
+        lines.append("━" * 40)
+        lines.append(f"Bank: ${stats['bankroll']:.2f} (start ${start:.0f}) | ROI: {roi:+.1f}% | P&L: ${stats['total_pnl']:+.2f}")
+        lines.append(f"WR: {wr}% ({stats['wins']}W/{stats['losses']}L/{total}) | Peak: ${stats['peak_equity']:.2f}")
+        lines.append(f"Sharpe: {sharpe:.2f} | MaxDD: -{drawdown['max_dd_pct']:.1f}% | Avg lifetime: {analytics['avg_lifetime_hours']:.1f}h")
+        lines.append(f"Avg win: ${avg_win:+.2f} | Avg loss: ${avg_loss:+.2f} | Ratio: {abs(avg_win/avg_loss):.2f}x" if avg_loss != 0 else f"Avg win: ${avg_win:+.2f} | Avg loss: $0")
+        lines.append(f"Streaks — Current: {streaks['cur_win']}W/{streaks['cur_loss']}L | Max: {streaks['max_win']}W/{streaks['max_loss']}L")
+
+        # Alerts
+        alerts = []
+        if wr < 50:
+            alerts.append(f"WR {wr}% below 50%")
+        if roi < 0:
+            alerts.append(f"ROI negative: {roi:+.1f}%")
+        if drawdown['max_dd_pct'] > 10:
+            alerts.append(f"Max drawdown {drawdown['max_dd_pct']:.1f}% > 10%")
+        if avg_loss != 0 and abs(avg_win / avg_loss) < 1:
+            alerts.append(f"Win/loss ratio {abs(avg_win/avg_loss):.2f}x < 1x")
+        # 7d performance
+        from datetime import datetime, timezone, timedelta
+        _now = datetime.now(timezone.utc)
+        recent_7d = [t for t in closed_all if t.get("closed_at") and (isinstance(t["closed_at"], datetime) and (_now - t["closed_at"]).days < 7)]
+        pnl_7d = sum(float(t.get("pnl") or 0) for t in recent_7d)
+        wins_7d = sum(1 for t in recent_7d if t.get("result") == "WIN")
+        wr_7d = round(wins_7d / len(recent_7d) * 100, 1) if recent_7d else 0
+        recent_30d = [t for t in closed_all if t.get("closed_at") and (isinstance(t["closed_at"], datetime) and (_now - t["closed_at"]).days < 30)]
+        pnl_30d = sum(float(t.get("pnl") or 0) for t in recent_30d)
+        lines.append(f"7d: {pnl_7d:+.2f}$ ({len(recent_7d)} trades, WR={wr_7d}%) | 30d: {pnl_30d:+.2f}$ ({len(recent_30d)} trades)")
+        if pnl_7d < -10:
+            alerts.append(f"7d P&L: {pnl_7d:+.2f}$ (heavy losses)")
+
+        if alerts:
+            lines.append(f"\nALERTS:")
+            for a in alerts:
+                lines.append(f"  ! {a}")
+        else:
+            lines.append(f"\nNo alerts.")
+
+        # ━━━ 2. PERFORMANCE ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("2. PERFORMANCE")
+        lines.append("━" * 40)
+
+        lines.append(f"\nDaily P&L (last 14d):")
+        for r in analytics["daily_pnl"]:
+            d_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
+            lines.append(f"  {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={d_wr}%)")
+
+        lines.append(f"\nBy Theme:")
+        for r in analytics["by_theme"]:
+            t_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            flag = " !" if t_wr < 40 and r['total'] >= 5 else ""
+            lines.append(f"  {r['theme']}: {r['wins']}/{r['total']} ({t_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}${flag}")
+
+        lines.append(f"\nBy Side:")
+        for r in analytics["by_side"]:
+            s_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['side']}: {r['wins']}/{r['total']} ({s_wr}%) avg={r['avg_pnl']:+.2f}$")
+
+        lines.append(f"\nClose Reasons:")
+        for r in analytics["by_reason"]:
+            c_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            lines.append(f"  {r['reason']}: {r['wins']}/{r['total']} ({c_wr}%) avg={r['avg_pnl']:+.2f}$")
+
+        # Best/worst
+        if closed_all:
+            best = max(closed_all, key=lambda t: float(t.get("pnl") or 0))
+            worst = min(closed_all, key=lambda t: float(t.get("pnl") or 0))
+            lines.append(f"\nBest:  {float(best['pnl']):+.2f}$ — {best.get('question','')[:60]}")
+            lines.append(f"Worst: {float(worst['pnl']):+.2f}$ — {worst.get('question','')[:60]}")
+
+        # ━━━ 3. RISK ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("3. RISK & PORTFOLIO")
+        lines.append("━" * 40)
+
+        if open_pos:
+            from collections import defaultdict as _ddict
+            _by_theme = _ddict(list)
+            for p in open_pos:
+                _by_theme[p.get('theme', '?')].append(p)
+            total_stake = sum(p.get('stake_amt', 0) for p in open_pos)
+            total_upnl = sum((p.get('unrealized_pnl') or 0) for p in open_pos)
+            lines.append(f"\nOpen Positions ({len(open_pos)}): ${total_stake:.2f} staked, uPnL={total_upnl:+.2f}$")
+            for theme in sorted(_by_theme, key=lambda t: -len(_by_theme[t])):
+                positions = _by_theme[theme]
+                t_stake = sum(p.get('stake_amt', 0) for p in positions)
+                t_upnl = sum((p.get('unrealized_pnl') or 0) for p in positions)
+                lines.append(f"  [{theme}] {len(positions)} pos, ${t_stake:.2f} staked, uPnL={t_upnl:+.2f}$")
+                for p in positions:
+                    upnl = p.get("unrealized_pnl") or 0
+                    entry = p.get('entry_price', 0)
+                    curr = p.get('current_price') or entry
+                    lines.append(f"    {p['side']} {p.get('question','')[:55]} | {entry*100:.0f}c→{curr*100:.0f}c | {upnl:+.2f}$ | ${p.get('stake_amt',0):.2f}")
+        else:
+            lines.append(f"\nNo open positions.")
+
+        # ━━━ 4. DIAGNOSTICS ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("4. DIAGNOSTICS")
+        lines.append("━" * 40)
+
+        try:
+            async with _db.pool.acquire() as conn:
+                # WR by entry price bucket
+                entry_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN entry_price >= 0.93 THEN '93-100c'
+                        WHEN entry_price >= 0.90 THEN '90-93c'
+                        WHEN entry_price >= 0.85 THEN '85-90c'
+                        ELSE '<85c' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if entry_wr:
+                    lines.append(f"\nWR by Entry Price:")
+                    for r in entry_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) total={r['total_pnl']:+.2f}$")
+
+                # WR by stake bucket
+                stake_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN stake_amt <= 1 THEN '$0-1'
+                        WHEN stake_amt <= 2 THEN '$1-2'
+                        WHEN stake_amt <= 3 THEN '$2-3'
+                        ELSE '$3+' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if stake_wr:
+                    lines.append(f"\nWR by Stake:")
+                    for r in stake_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) total={r['total_pnl']:+.2f}$")
+
+                # WR by hold time
+                hold_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 1 THEN '<1h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 6 THEN '1-6h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 24 THEN '6-24h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 72 THEN '1-3d'
+                        ELSE '3d+' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND closed_at IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if hold_wr:
+                    lines.append(f"\nWR by Hold Time:")
+                    for r in hold_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # SL distribution
+                sl_dist = await conn.fetch("""
+                    SELECT ROUND(sl_pct::numeric, 2) as sl, COUNT(*) as total,
+                        SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND sl_pct IS NOT NULL
+                    GROUP BY ROUND(sl_pct::numeric, 2) ORDER BY sl
+                """)
+                if sl_dist:
+                    lines.append(f"\nSL Distribution:")
+                    for r in sl_dist:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  SL={float(r['sl'])*100:.0f}%: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$")
+
+                # Repeat losers
+                repeat_losers = await conn.fetch("""
+                    SELECT question, COUNT(*) as entries, SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses,
+                           ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY question HAVING COUNT(*) >= 2 ORDER BY SUM(pnl) ASC LIMIT 5
+                """)
+                if repeat_losers:
+                    lines.append(f"\nRepeat Losers:")
+                    for r in repeat_losers:
+                        lines.append(f"  {r['entries']}x {r['losses']}L {r['total_pnl']:+.2f}$ | {r['question'][:60]}")
+
+                # Expired open positions
+                expired_list = []
+                for p in open_pos:
+                    q = p.get("question", "")
+                    import re as _re
+                    _m = _re.search(r'(?:on|by|before)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,?\s+(\d{4}))?', q, _re.IGNORECASE)
+                    if _m:
+                        _ms, _ds, _ys = _m.group(1), _m.group(2), _m.group(3)
+                        _yr = int(_ys) if _ys else _now.year
+                        try:
+                            _qd = datetime.strptime(f"{_ms} {_ds} {_yr}", "%B %d %Y").replace(tzinfo=timezone.utc)
+                            _da = (_now - _qd).days
+                            if _da > 1:
+                                expired_list.append(f"  ! {q[:60]} ({_da}d ago, ${p.get('stake_amt',0):.2f})")
+                        except ValueError:
+                            pass
+                if expired_list:
+                    lines.append(f"\nExpired Open Positions:")
+                    lines.extend(expired_list)
+
+        except Exception as e:
+            lines.append(f"\n  Diagnostics error: {e}")
+
+        lines.append(f"\n{'=' * 60}")
+        lines.append("END OF MICRO AUDIT")
+
+        report = "\n".join(lines)
+        return Response(report, media_type="text/plain; charset=utf-8")
+    except Exception as e:
+        log.error(f"[DASHBOARD] Micro audit error: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/favicon.ico")
 async def favicon():
     return Response(status_code=204)

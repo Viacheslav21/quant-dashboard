@@ -111,7 +111,7 @@
       <tr>
         <td>{{ r.group_name }}</td>
         <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
         <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
       </tr>
@@ -128,7 +128,7 @@
       <tr>
         <td>{{ r.reason }}</td>
         <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
       </tr>
       {% else %}
@@ -147,7 +147,7 @@
       <tr>
         <td class="{{ 'yes' if r.side == 'YES' else 'no' }}">{{ r.side }}</td>
         <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
       </tr>
       {% else %}
@@ -163,7 +163,7 @@
       <tr>
         <td>{{ r.day }}</td>
         <td class="num">{{ r.trades }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.trades) }}">{{ r.wins }}/{{ r.trades }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.trades) }}">{{ r.wins }}/{{ r.trades - r.wins }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
         <td class="num" style="color:{{ pc(r.pnl|float) }}">{{ "%+.2f"|format(r.pnl|float) }}$</td>
       </tr>
       {% else %}
