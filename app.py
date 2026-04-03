@@ -958,8 +958,7 @@ async def system_audit():
                         ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
                         ROUND(AVG(pnl_pct)::numeric, 3) as avg_pnl_pct
                     FROM trade_log
-                    WHERE event_type IN ('CLOSE_TP','CLOSE_RESOLVED','CLOSE_TRAILING_TP')
-                        AND (details->>'position_age_hours')::float > 0
+                    WHERE event_type IN ('CLOSE_TP','CLOSE_RESOLVED','CLOSE_TRAILING_TP','CLOSE_SL','CLOSE_MANUAL')
                     GROUP BY event_type ORDER BY avg_pnl DESC
                 """)
                 if tp_shield:
@@ -969,14 +968,14 @@ async def system_audit():
 
                 # Contrarian vs non-contrarian
                 contrarian_wr = await conn.fetch("""
-                    SELECT is_contrarian,
+                    SELECT tl.is_contrarian,
                         COUNT(*) as total,
-                        SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                        SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl
                     FROM positions p
                     JOIN trade_log tl ON tl.position_id = p.id AND tl.event_type = 'OPEN'
                     WHERE p.status='closed' AND p.result IS NOT NULL
-                    GROUP BY is_contrarian
+                    GROUP BY tl.is_contrarian
                 """)
                 if contrarian_wr:
                     lines.append(f"\nContrarian vs Normal:")
