@@ -845,6 +845,149 @@ async def system_audit():
         except Exception:
             pass
 
+        # ━━━ 7. EVIDENCE & FEATURES (from trade_log details) ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("7. EVIDENCE & FEATURES")
+        lines.append("━" * 40)
+        try:
+            async with _db.pool.acquire() as conn:
+                # WR by n_evidence
+                n_ev_stats = await conn.fetch("""
+                    SELECT CASE
+                        WHEN (tl.details->>'n_evidence')::int <= 2 THEN '1-2'
+                        WHEN (tl.details->>'n_evidence')::int <= 4 THEN '3-4'
+                        ELSE '5+' END as bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl
+                    FROM positions p
+                    JOIN trade_log tl ON tl.position_id = p.id AND tl.event_type = 'OPEN'
+                    WHERE p.status='closed' AND p.result IS NOT NULL
+                        AND tl.details->>'n_evidence' IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if n_ev_stats:
+                    lines.append(f"\nWR by Evidence Count:")
+                    for r in n_ev_stats:
+                        wr_n = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']} sources: {r['wins']}/{r['total']} ({wr_n}%) avg={float(r['avg_pnl']):+.2f}$")
+
+                # WR by Hurst regime
+                hurst_stats = await conn.fetch("""
+                    SELECT CASE
+                        WHEN (tl.details->>'hurst')::float < 0.4 THEN 'mean-revert (<0.4)'
+                        WHEN (tl.details->>'hurst')::float BETWEEN 0.4 AND 0.6 THEN 'random (0.4-0.6)'
+                        ELSE 'trending (>0.6)' END as regime,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl
+                    FROM positions p
+                    JOIN trade_log tl ON tl.position_id = p.id AND tl.event_type = 'OPEN'
+                    WHERE p.status='closed' AND p.result IS NOT NULL
+                        AND tl.details->>'hurst' IS NOT NULL
+                    GROUP BY regime ORDER BY regime
+                """)
+                if hurst_stats:
+                    lines.append(f"\nWR by Hurst Regime:")
+                    for r in hurst_stats:
+                        wr_h = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['regime']}: {r['wins']}/{r['total']} ({wr_h}%) avg={float(r['avg_pnl']):+.2f}$")
+
+                # Recheck effectiveness
+                recheck_stats = await conn.fetchrow("""
+                    SELECT
+                        COUNT(*) FILTER (WHERE details->>'reason' = 'stale_price') as stale_blocked,
+                        COUNT(*) FILTER (WHERE details->>'reason' = 'market_in_review') as review_blocked,
+                        COUNT(*) FILTER (WHERE details->>'reason' = 'market_closed_pre_exec') as closed_blocked
+                    FROM trade_log WHERE event_type = 'SIGNAL_REJECTED'
+                        AND details->>'reason' IN ('stale_price','market_in_review','market_closed_pre_exec')
+                        AND created_at > NOW() - INTERVAL '7 days'
+                """)
+                if recheck_stats:
+                    total_blocked = (recheck_stats['stale_blocked'] or 0) + (recheck_stats['review_blocked'] or 0) + (recheck_stats['closed_blocked'] or 0)
+                    if total_blocked > 0:
+                        lines.append(f"\nRecheck Blocked (7d): {total_blocked} signals (stale:{recheck_stats['stale_blocked']}, review:{recheck_stats['review_blocked']}, closed:{recheck_stats['closed_blocked']})")
+
+                # Grace period with 2h boundary
+                grace2h = await conn.fetch("""
+                    SELECT CASE
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 1 THEN '<1h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 2 THEN '1-2h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 3 THEN '2-3h'
+                        WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 6 THEN '3-6h'
+                        ELSE '6h+' END as bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL AND closed_at IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if grace2h:
+                    lines.append(f"\nWR by Age (2h grace boundary):")
+                    for r in grace2h:
+                        if r['bucket'] and r['total'] > 0:
+                            wr_g = round(r['wins'] / r['total'] * 100, 1)
+                            lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({wr_g}%) avg={float(r['avg_pnl']):+.2f}$")
+
+                # Bimodal sizing effectiveness
+                bimodal = await conn.fetch("""
+                    SELECT CASE
+                        WHEN stake_amt <= 4 THEN '$1-4'
+                        WHEN stake_amt BETWEEN 4.01 AND 5 THEN '$4-5 (bimodal low)'
+                        WHEN stake_amt BETWEEN 5.01 AND 10 THEN '$5-10 (toxic zone)'
+                        WHEN stake_amt BETWEEN 10.01 AND 13 THEN '$11-13 (bimodal high)'
+                        WHEN stake_amt BETWEEN 13.01 AND 20 THEN '$13-20'
+                        ELSE '$20+' END as bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY bucket ORDER BY MIN(stake_amt)
+                """)
+                if bimodal:
+                    lines.append(f"\nWR by Stake (bimodal zones):")
+                    for r in bimodal:
+                        if r['total'] > 0:
+                            wr_b = round(r['wins'] / r['total'] * 100, 1)
+                            lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({wr_b}%) total={float(r['total_pnl']):+.0f}$")
+
+                # TP shield / resolved near expiry
+                tp_shield = await conn.fetch("""
+                    SELECT event_type,
+                        COUNT(*) as total,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                        ROUND(AVG(pnl_pct)::numeric, 3) as avg_pnl_pct
+                    FROM trade_log
+                    WHERE event_type IN ('CLOSE_TP','CLOSE_RESOLVED','CLOSE_TRAILING_TP')
+                        AND (details->>'position_age_hours')::float > 0
+                    GROUP BY event_type ORDER BY avg_pnl DESC
+                """)
+                if tp_shield:
+                    lines.append(f"\nClose Type Comparison:")
+                    for r in tp_shield:
+                        lines.append(f"  {r['event_type']}: {r['total']} trades, avg={float(r['avg_pnl']):+.2f}$ ({float(r['avg_pnl_pct'])*100:+.1f}%)")
+
+                # Contrarian vs non-contrarian
+                contrarian_wr = await conn.fetch("""
+                    SELECT is_contrarian,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                    FROM positions p
+                    JOIN trade_log tl ON tl.position_id = p.id AND tl.event_type = 'OPEN'
+                    WHERE p.status='closed' AND p.result IS NOT NULL
+                    GROUP BY is_contrarian
+                """)
+                if contrarian_wr:
+                    lines.append(f"\nContrarian vs Normal:")
+                    for r in contrarian_wr:
+                        label = "Contrarian" if r['is_contrarian'] else "Normal"
+                        wr_c = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {label}: {r['wins']}/{r['total']} ({wr_c}%) avg={float(r['avg_pnl']):+.2f}$")
+
+        except Exception as e:
+            lines.append(f"\n  Evidence section error: {e}")
+
         # Open positions (compact)
         lines.append(f"\nOpen Positions ({len(open_pos)}):")
         # Group by theme
@@ -1270,6 +1413,154 @@ async def api_diagnostics():
         return Response(to_json(diag), media_type="application/json")
     except Exception as e:
         log.warning(f"[DASHBOARD] Diagnostics error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Mobile API ──
+# JSON endpoints for Android app. Auth via Bearer token (same as dashboard).
+
+@app.get("/api/mobile/overview")
+async def mobile_overview():
+    """Main screen: bankroll, PnL, WR, open positions summary, daily PnL."""
+    try:
+        stats = await _db.get_stats()
+        open_pos = await _db.get_open_positions()
+        start = _config["BANKROLL"]
+        total = stats["wins"] + stats["losses"]
+
+        # Group open positions by theme
+        themes = {}
+        for p in open_pos:
+            t = p.get("theme", "other")
+            if t not in themes:
+                themes[t] = {"count": 0, "staked": 0, "upnl": 0}
+            themes[t]["count"] += 1
+            themes[t]["staked"] += p.get("stake_amt", 0)
+            themes[t]["upnl"] += p.get("unrealized_pnl", 0) or 0
+
+        return Response(to_json({
+            "bankroll": stats["bankroll"],
+            "start_bankroll": start,
+            "total_pnl": stats["total_pnl"],
+            "roi_pct": round((stats["bankroll"] - start) / start * 100, 1) if start > 0 else 0,
+            "wins": stats["wins"],
+            "losses": stats["losses"],
+            "wr_pct": round(stats["wins"] / total * 100, 1) if total > 0 else 0,
+            "open_count": len(open_pos),
+            "open_upnl": round(sum((p.get("unrealized_pnl") or 0) for p in open_pos), 2),
+            "open_staked": round(sum(p.get("stake_amt", 0) for p in open_pos), 2),
+            "themes": themes,
+        }), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/mobile/positions")
+async def mobile_positions(status: str = "open", page: int = 1, limit: int = 50):
+    """Open or closed positions list."""
+    try:
+        if status == "open":
+            positions = await _db.get_open_positions()
+            result = []
+            for p in positions:
+                upnl = p.get("unrealized_pnl") or 0
+                entry = p.get("side_price", 0)
+                pnl_pct = (p.get("current_price", entry) - entry) / entry * 100 if entry > 0 else 0
+                result.append({
+                    "id": p["id"],
+                    "market_id": p["market_id"],
+                    "question": p.get("question", ""),
+                    "theme": p.get("theme", "other"),
+                    "side": p["side"],
+                    "entry_price": entry,
+                    "current_price": p.get("current_price", entry),
+                    "stake": p.get("stake_amt", 0),
+                    "upnl": round(upnl, 2),
+                    "pnl_pct": round(pnl_pct, 1),
+                    "tp_pct": p.get("tp_pct"),
+                    "sl_pct": p.get("sl_pct"),
+                    "ev": p.get("ev"),
+                    "opened_at": p.get("created_at"),
+                })
+            return Response(to_json({"positions": result, "total": len(result)}), media_type="application/json")
+        else:
+            offset = (page - 1) * limit
+            positions = await _db.get_closed_positions(limit=limit, offset=offset)
+            total = await _db.get_closed_positions_count()
+            result = []
+            for p in positions:
+                result.append({
+                    "id": p["id"],
+                    "question": p.get("question", ""),
+                    "theme": p.get("theme", "other"),
+                    "side": p["side"],
+                    "entry_price": p.get("side_price", 0),
+                    "exit_price": p.get("current_price", 0),
+                    "stake": p.get("stake_amt", 0),
+                    "pnl": p.get("pnl", 0),
+                    "result": p.get("result", ""),
+                    "close_reason": p.get("close_reason", ""),
+                    "opened_at": p.get("created_at"),
+                    "closed_at": p.get("closed_at"),
+                })
+            return Response(to_json({"positions": result, "total": total, "page": page}), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/mobile/analytics")
+async def mobile_analytics():
+    """Analytics: by theme, by side, daily PnL, calibration, DMA, CLV."""
+    try:
+        data = await _db.get_analytics()
+        clv = await _db.get_clv_analytics()
+        dma_weights = await _db.get_dma_weights()
+        all_trades = await _db.get_all_closed_trades()
+        stats = await _db.get_stats()
+        start = _config["BANKROLL"]
+
+        sharpe = compute_sharpe_ratio(all_trades)
+        drawdown = compute_max_drawdown(all_trades, start)
+        streaks = compute_streaks(all_trades)
+
+        return Response(to_json({
+            "by_theme": data["by_theme"],
+            "by_side": data["by_side"],
+            "by_config": data["by_config"],
+            "daily_pnl": data["daily_pnl"],
+            "calibration": data["calibration"],
+            "ev_predicted": data["ev_predicted"],
+            "ev_actual": data["ev_actual"],
+            "clv": clv,
+            "dma_weights": dma_weights,
+            "sharpe": sharpe,
+            "max_drawdown_pct": drawdown["max_pct"],
+            "streaks": streaks,
+        }), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/mobile/daily-pnl")
+async def mobile_daily_pnl(days: int = 30):
+    """Daily PnL for chart."""
+    try:
+        data = await _db.get_analytics()
+        daily = data.get("daily_pnl", [])[:days]
+        return Response(to_json({"daily": daily}), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/mobile/equity-curve")
+async def mobile_equity_curve():
+    """Equity curve data for chart."""
+    try:
+        all_trades = await _db.get_all_closed_trades()
+        start = _config["BANKROLL"]
+        equity = compute_equity_curve(all_trades, start)
+        return Response(to_json({"equity": equity}), media_type="application/json")
+    except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
