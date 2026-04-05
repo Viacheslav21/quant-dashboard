@@ -17,8 +17,7 @@ def _clean(row) -> dict:
         if isinstance(v, Decimal):
             d[k] = float(v)
         elif isinstance(v, (dict, list)):
-            # JSONB columns — skip to avoid unhashable type errors
-            continue
+            d[k] = v  # JSONB columns — keep as-is (JSON-serializable)
         else:
             d[k] = v
     return d
@@ -504,7 +503,7 @@ class Database:
 
             def clv_val(row, col):
                 v = row.get(col)
-                if v is None or v <= 0:
+                if v is None:
                     return None
                 entry = row["side_price"]
                 if row["side"] == "YES":
@@ -551,103 +550,6 @@ class Database:
                 FROM dma_weights ORDER BY weight DESC
             """)
             return _clean_list(rows)
-
-    # ── Arbitrage tables (read-only) ──
-
-    async def get_arb_stats(self) -> dict:
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT bankroll, total_pnl, wins, losses FROM arb_stats WHERE id=1")
-            if row:
-                r = _clean(row)
-                return {
-                    "bankroll": float(r.get("bankroll") or 0),
-                    "total_pnl": float(r.get("total_pnl") or 0),
-                    "wins": int(r.get("wins") or 0),
-                    "losses": int(r.get("losses") or 0),
-                }
-            return {"bankroll": 0.0, "total_pnl": 0.0, "wins": 0, "losses": 0}
-
-    async def get_arb_open_positions(self) -> list:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT id, market_id, question, side, side_price, current_price,
-                       unrealized_pnl, ev, stake_amt, group_name, opened_at
-                FROM arb_positions WHERE status='open' ORDER BY opened_at DESC
-            """)
-            return _clean_list(rows)
-
-    async def get_arb_closed_positions(self, limit: int = 100, offset: int = 0) -> list:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT id, question, side, side_price, current_price, pnl, result,
-                       close_reason, group_name, opened_at, closed_at
-                FROM arb_positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1 OFFSET $2
-            """, limit, offset)
-            return _clean_list(rows)
-
-    async def get_arb_signals(self, limit: int = 50) -> list:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT id, market_id, question, side, side_price, ev, group_name,
-                       leader_question, leader_move, signal_type, executed, created_at
-                FROM arb_signals ORDER BY created_at DESC LIMIT $1
-            """, limit)
-            return _clean_list(rows)
-
-    async def get_arb_cumulative_pnl(self) -> list:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT closed_at, pnl,
-                    SUM(pnl) OVER (ORDER BY closed_at) as cumulative
-                FROM arb_positions
-                WHERE status='closed' AND closed_at IS NOT NULL
-                ORDER BY closed_at ASC
-            """)
-            return [{"t": r["closed_at"].isoformat(), "pnl": float(r["pnl"]), "cum": float(r["cumulative"])} for r in rows]
-
-    async def get_arb_analytics(self) -> dict:
-        async with self.pool.acquire() as conn:
-            by_group = await conn.fetch("""
-                SELECT group_name, COUNT(*) as total,
-                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
-                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
-                FROM arb_positions WHERE status='closed' AND group_name IS NOT NULL
-                GROUP BY group_name ORDER BY total DESC
-            """)
-            by_reason = await conn.fetch("""
-                SELECT close_reason as reason, COUNT(*) as total,
-                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
-                FROM arb_positions WHERE status='closed' AND close_reason IS NOT NULL
-                GROUP BY close_reason ORDER BY total DESC
-            """)
-            by_side = await conn.fetch("""
-                SELECT side, COUNT(*) as total,
-                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
-                FROM arb_positions WHERE status='closed'
-                GROUP BY side
-            """)
-            avg_lifetime = await conn.fetchrow("""
-                SELECT ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - opened_at)) / 60)::numeric, 1) as avg_min
-                FROM arb_positions WHERE status='closed' AND closed_at IS NOT NULL
-            """)
-            daily_pnl = await conn.fetch("""
-                SELECT DATE(closed_at) as day,
-                    ROUND(SUM(pnl)::numeric, 2) as pnl,
-                    COUNT(*) as trades,
-                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins
-                FROM arb_positions WHERE status='closed' AND closed_at IS NOT NULL
-                GROUP BY day ORDER BY day DESC LIMIT 14
-            """)
-        return {
-            "by_group": _clean_list(by_group),
-            "by_reason": _clean_list(by_reason),
-            "by_side": _clean_list(by_side),
-            "avg_lifetime_min": float(avg_lifetime["avg_min"] or 0) if avg_lifetime else 0.0,
-            "daily_pnl": _clean_list(daily_pnl),
-        }
 
     # ── Micro (scalping) tables (read-only) ──
 

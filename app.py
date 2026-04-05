@@ -1004,47 +1004,6 @@ async def system_audit():
                 upnl = p.get("unrealized_pnl") or 0
                 lines.append(f"    {p['side']} {p.get('question','')[:55]} | {p['side_price']*100:.0f}c→{((p.get('current_price') or p['side_price'])*100):.0f}c | {upnl:+.2f}$ | ${p['stake_amt']:.0f}")
 
-        # === ARBITRAGE BOT (full) ===
-        try:
-            arb_stats = await _db.get_arb_stats()
-            if arb_stats and arb_stats.get("wins", 0) + arb_stats.get("losses", 0) > 0:
-                arb_total = arb_stats["wins"] + arb_stats["losses"]
-                arb_wr = round(arb_stats["wins"] / arb_total * 100, 1) if arb_total > 0 else 0
-                lines.append(f"\n## ARBITRAGE BOT")
-                lines.append(f"  Bankroll: ${arb_stats['bankroll']:.2f} | P&L: ${arb_stats['total_pnl']:+.2f} | WR: {arb_wr}% ({arb_stats['wins']}W/{arb_stats['losses']}L)")
-
-                arb_open = await _db.get_arb_open_positions()
-                if arb_open:
-                    lines.append(f"  Open arb positions: {len(arb_open)}")
-                    for p in arb_open:
-                        upnl = p.get("unrealized_pnl") or 0
-                        lines.append(f"    [{p['side']}] {p.get('question','')[:60]} | entry={p.get('side_price',0)*100:.1f}c now={((p.get('current_price') or p.get('side_price',0))*100):.1f}c | uPnL={upnl:+.2f}$ | group={p.get('group_name','?')}")
-
-                arb_analytics = await _db.get_arb_analytics()
-                if arb_analytics.get("by_group"):
-                    lines.append(f"  Arb avg lifetime: {arb_analytics['avg_lifetime_min']:.1f} min")
-                    lines.append(f"  Arb WR by group:")
-                    for r in arb_analytics["by_group"]:
-                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"    {r['group_name']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$ total_pnl={r['total_pnl']:+.2f}$")
-                if arb_analytics.get("by_reason"):
-                    lines.append(f"  Arb WR by close reason:")
-                    for r in arb_analytics["by_reason"]:
-                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"    {r['reason']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
-                if arb_analytics.get("by_side"):
-                    lines.append(f"  Arb WR by side:")
-                    for r in arb_analytics["by_side"]:
-                        g_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"    {r['side']}: {r['wins']}/{r['total']} ({g_wr}%) avg_pnl={r['avg_pnl']:+.2f}$")
-                if arb_analytics.get("daily_pnl"):
-                    lines.append(f"  Arb daily P&L:")
-                    for r in arb_analytics["daily_pnl"]:
-                        g_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
-                        lines.append(f"    {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={g_wr}%)")
-        except Exception:
-            pass
-
         # === MICRO (SCALPING) BOT (full) ===
         try:
             micro_stats = await _db.get_micro_stats()
@@ -1534,7 +1493,7 @@ async def mobile_analytics():
             "clv": clv,
             "dma_weights": dma_weights,
             "sharpe": sharpe,
-            "max_drawdown_pct": drawdown["max_pct"],
+            "max_drawdown_pct": drawdown["max_dd_pct"],
             "streaks": streaks,
         }), media_type="application/json")
     except Exception as e:
