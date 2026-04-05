@@ -268,15 +268,25 @@ class Database:
 
     # ── New metric queries ──
 
+    _trades_cache = None
+    _trades_cache_at = 0
+
     async def get_all_closed_trades(self) -> list:
-        """All closed trades ordered chronologically for metric computation."""
+        """All closed trades ordered chronologically for metric computation.
+        Cached for 30 seconds — data only changes when a trade closes."""
+        import time
+        now = time.time()
+        if self._trades_cache is not None and now - self._trades_cache_at < 30:
+            return self._trades_cache
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT pnl, stake_amt, result, closed_at, question
                 FROM positions WHERE status='closed' AND closed_at IS NOT NULL
                 ORDER BY closed_at ASC
             """)
-            return _clean_list(rows)
+            self._trades_cache = _clean_list(rows)
+            self._trades_cache_at = now
+            return self._trades_cache
 
     async def get_best_worst_trades(self) -> dict:
         async with self.pool.acquire() as conn:

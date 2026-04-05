@@ -5,6 +5,7 @@ import json
 import hmac
 import hashlib
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -40,7 +41,7 @@ import jinja2 as _jinja2
 _env = _jinja2.Environment(
     loader=_jinja2.FileSystemLoader("templates"),
     autoescape=True,
-    cache_size=0,
+    cache_size=400,
 )
 templates = Jinja2Templates(directory="templates")
 templates.env = _env
@@ -203,18 +204,19 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         df = _parse_date(date_from)
         dt = _parse_date(date_to)
 
-        stats = await _db.get_stats()
-        open_ = await _db.get_open_positions()
-        total_closed = await _db.get_closed_positions_count(df, dt)
+        # Fetch independent data in parallel
+        stats, open_, total_closed, signals, pnl_data, all_trades, rolling, best_worst = await asyncio.gather(
+            _db.get_stats(),
+            _db.get_open_positions(),
+            _db.get_closed_positions_count(df, dt),
+            _db.get_recent_signals(limit=10),
+            _db.get_cumulative_pnl(),
+            _db.get_all_closed_trades(),
+            _db.get_rolling_performance(),
+            _db.get_best_worst_trades(),
+        )
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
         closed = await _db.get_closed_positions(limit=per_page, offset=(page - 1) * per_page, date_from=df, date_to=dt)
-        signals = await _db.get_recent_signals(limit=10)
-        pnl_data = await _db.get_cumulative_pnl()
-
-        # Advanced metrics
-        all_trades = await _db.get_all_closed_trades()
-        rolling = await _db.get_rolling_performance()
-        best_worst = await _db.get_best_worst_trades()
 
         start = _config["BANKROLL"]
         roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
@@ -281,18 +283,21 @@ async def cmd_close_position(request: Request):
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics(request: Request, date_from: str = None, date_to: str = None):
     try:
-        data = await _db.get_analytics()
-        pnl_data = await _db.get_cumulative_pnl()
-        sig_outcomes = await _db.get_signal_outcomes(limit=50)
-        market_metrics = await _db.get_all_market_metrics(limit=50)
-        config_hist = await _db.get_config_history()
+        (data, pnl_data, sig_outcomes, market_metrics, config_hist,
+         stats, all_trades, rolling, best_worst, clv, dma_weights) = await asyncio.gather(
+            _db.get_analytics(),
+            _db.get_cumulative_pnl(),
+            _db.get_signal_outcomes(limit=50),
+            _db.get_all_market_metrics(limit=50),
+            _db.get_config_history(),
+            _db.get_stats(),
+            _db.get_all_closed_trades(),
+            _db.get_rolling_performance(),
+            _db.get_best_worst_trades(),
+            _db.get_clv_analytics(),
+            _db.get_dma_weights(),
+        )
         config_map = {c["tag"]: c["params"] for c in config_hist}
-        stats = await _db.get_stats()
-
-        # Advanced metrics
-        all_trades = await _db.get_all_closed_trades()
-        rolling = await _db.get_rolling_performance()
-        best_worst = await _db.get_best_worst_trades()
 
         start = _config["BANKROLL"]
         roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
@@ -303,8 +308,6 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         drawdown = compute_max_drawdown(all_trades, start)
         equity = compute_equity_curve(all_trades, start)
         pnl_dist = compute_pnl_distribution(all_trades)
-        clv = await _db.get_clv_analytics()
-        dma_weights = await _db.get_dma_weights()
 
         ev_pred = data["ev_predicted"] * 100
         ev_act = data["ev_actual"] * 100
@@ -369,13 +372,15 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
 async def scalping(request: Request, page: int = 1):
     try:
         per_page = 20
-        stats = await _db.get_micro_stats()
-        open_ = await _db.get_micro_open_positions()
+        stats, open_, pnl_data, data = await asyncio.gather(
+            _db.get_micro_stats(),
+            _db.get_micro_open_positions(),
+            _db.get_micro_cumulative_pnl(),
+            _db.get_micro_analytics(),
+        )
         total_closed = stats["wins"] + stats["losses"]
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
         closed = await _db.get_micro_closed_positions(limit=per_page, offset=(page - 1) * per_page)
-        pnl_data = await _db.get_micro_cumulative_pnl()
-        data = await _db.get_micro_analytics()
 
         micro_bankroll = 500.0  # starting bankroll
         roi = ((stats["bankroll"] - micro_bankroll) / micro_bankroll * 100) if micro_bankroll > 0 else 0
