@@ -142,7 +142,7 @@
         <td>{{ r.theme }}</td>
         <td class="num">{{ r.total }}</td>
         <td class="num">{{ r.wins }}</td>
-        <td class="num" style="color:{{ wr_color(wr) }}">{{ wr }}%</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ wr }}%</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
         <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
       </tr>
