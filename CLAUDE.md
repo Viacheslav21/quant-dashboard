@@ -12,9 +12,16 @@ FastAPI dashboard for monitoring a prediction-market trading engine ("quant-engi
 ## Project structure
 
 ```
-app.py                — FastAPI routes and data orchestration (~1530 lines)
+app.py                — Slim orchestrator: startup, auth, middleware (~180 lines)
+routes/
+  deps.py             — Shared dependencies: db, config, templates, helpers
+  pages.py            — HTML pages: /, /analytics, /scalping, /model (~230 lines)
+  api.py              — Core API: /api, commands, export, diagnostics (~80 lines)
+  mobile.py           — Mobile API: /api/mobile/* (~140 lines)
+  audit.py            — System + micro audit reports (~850 lines)
+  ml_proxy.py         — ML service proxy: /api/ml/* (~50 lines)
 utils/
-  db.py               — Database class (asyncpg pool, read-only queries + trader_commands write)
+  db.py               — Database class (asyncpg pool, queries + trader_commands write, TTL cache)
   helpers.py           — Shared helpers: pc(), wr_color(), to_json()
   metrics.py           — Pure Python metric computation: Sharpe, drawdown, streaks, equity curve, PnL distribution
 templates/
@@ -79,7 +86,10 @@ Procfile
 
 ## Key architecture decisions
 
-- **Jinja2 templates** with base template inheritance — CSS/nav/sort JS defined once in `base.html`
+- **Route modules** — app.py is a slim 180-line orchestrator; routes split into pages, api, mobile, audit, ml_proxy via `APIRouter`
+- **asyncio.gather** — all page routes fetch independent DB data in parallel (50-80% latency reduction)
+- **TTL cache** — `get_all_closed_trades()` cached for 30s (avoids repeated full-table scans on page loads)
+- **Jinja2 templates** with base template inheritance + caching enabled — CSS/nav/sort JS defined once in `base.html`
 - **Helper functions** (`pc`, `wr_color`) registered as Jinja2 globals, no duplication
 - **Pagination** uses SQL `OFFSET/LIMIT` (not Python slicing)
 - **Metrics computation** (Sharpe, drawdown, streaks) is pure Python in `utils/metrics.py`, separated from DB layer
