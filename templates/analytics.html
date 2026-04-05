@@ -130,6 +130,29 @@
   </div>
 </div>
 
+<!-- PnL by Theme -->
+<div class="row" style="grid-template-columns:1fr">
+  <div class="panel">
+    <div class="panel-header"><h2>P&amp;L by Theme</h2><span class="count">{{ data.by_theme|length }}</span></div>
+    <table>
+      <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">Wins</th><th class="sortable">WR%</th><th class="sortable">Avg PnL</th><th class="sortable">Total PnL</th></tr>
+      {% for r in data.by_theme %}
+      {% set wr = (r.wins / r.total * 100)|round(1) if r.total > 0 else 0 %}
+      <tr>
+        <td>{{ r.theme }}</td>
+        <td class="num">{{ r.total }}</td>
+        <td class="num">{{ r.wins }}</td>
+        <td class="num" style="color:{{ wr_color(wr) }}">{{ wr }}%</td>
+        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
+        <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">Нет данных</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
 <!-- Charts row 1: Cumulative PnL + Daily PnL -->
 <div class="row">
   <div class="panel" style="padding:20px">
