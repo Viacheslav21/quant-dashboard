@@ -5,7 +5,8 @@ import csv
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from routes.deps import db, config, parse_date, log, to_json
+import routes.deps as deps
+from routes.deps import parse_date, log, to_json
 from utils.helpers import _json_serial
 
 router = APIRouter(prefix="/api")
@@ -14,9 +15,9 @@ router = APIRouter(prefix="/api")
 @router.get("")
 async def api_stats():
     try:
-        stats = await db.get_stats()
-        open_ = await db.get_open_positions()
-        closed = await db.get_closed_positions(limit=5)
+        stats = await deps.db.get_stats()
+        open_ = await deps.db.get_open_positions()
+        closed = await deps.db.get_closed_positions(limit=5)
         return Response(to_json({"stats": stats, "open": len(open_), "recent": len(closed)}), media_type="application/json")
     except Exception as e:
         log.warning(f"[DASHBOARD] API error: {e}")
@@ -31,7 +32,7 @@ async def cmd_close_position(request: Request):
         position_id = body.get("position_id")
         if not position_id:
             return JSONResponse({"error": "position_id required"}, status_code=400)
-        async with db.pool.acquire() as conn:
+        async with deps.db.pool.acquire() as conn:
             row = await conn.fetchrow("""
                 INSERT INTO trader_commands (command, position_id, params)
                 VALUES ('close_position', $1, '{}')
@@ -50,7 +51,7 @@ async def export_positions(date_from: str = None, date_to: str = None):
     """CSV export of closed positions."""
     df = parse_date(date_from)
     dt = parse_date(date_to)
-    rows = await db.get_positions_for_export(df, dt)
+    rows = await deps.db.get_positions_for_export(df, dt)
     output = io.StringIO()
     if rows:
         fields = list(rows[0].keys())
@@ -70,7 +71,7 @@ async def export_positions(date_from: str = None, date_to: str = None):
 async def api_diagnostics():
     """Deep WR diagnostics."""
     try:
-        diag = await db.get_wr_diagnostics()
+        diag = await deps.db.get_wr_diagnostics()
         return Response(to_json(diag), media_type="application/json")
     except Exception as e:
         log.warning(f"[DASHBOARD] Diagnostics error: {e}")

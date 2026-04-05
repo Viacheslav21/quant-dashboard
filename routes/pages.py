@@ -6,11 +6,11 @@ import asyncio
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from routes.deps import db, config, templates, ctx, parse_date, log
+import routes.deps as deps
 from routes.deps import (
+    ctx, parse_date, log, to_json,
     compute_sharpe_ratio, compute_max_drawdown,
     compute_streaks, compute_equity_curve, compute_pnl_distribution,
-    to_json,
 )
 
 router = APIRouter()
@@ -24,23 +24,23 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         dt = parse_date(date_to)
 
         stats, open_, total_closed, signals, pnl_data, all_trades, rolling, best_worst = await asyncio.gather(
-            db.get_stats(),
-            db.get_open_positions(),
-            db.get_closed_positions_count(df, dt),
-            db.get_recent_signals(limit=10),
-            db.get_cumulative_pnl(),
-            db.get_all_closed_trades(),
-            db.get_rolling_performance(),
-            db.get_best_worst_trades(),
+            deps.db.get_stats(),
+            deps.db.get_open_positions(),
+            deps.db.get_closed_positions_count(df, dt),
+            deps.db.get_recent_signals(limit=10),
+            deps.db.get_cumulative_pnl(),
+            deps.db.get_all_closed_trades(),
+            deps.db.get_rolling_performance(),
+            deps.db.get_best_worst_trades(),
         )
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
-        closed = await db.get_closed_positions(limit=per_page, offset=(page - 1) * per_page, date_from=df, date_to=dt)
+        closed = await deps.db.get_closed_positions(limit=per_page, offset=(page - 1) * per_page, date_from=df, date_to=dt)
 
-        start = config["BANKROLL"]
+        start = deps.config["BANKROLL"]
         roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
-        mode = "Simulation" if (config or {}).get("SIMULATION", True) else "Live"
+        mode = "Simulation" if (deps.config or {}).get("SIMULATION", True) else "Live"
 
         sharpe = compute_sharpe_ratio(all_trades)
         drawdown = compute_max_drawdown(all_trades, start)
@@ -51,7 +51,7 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse(request, "dashboard.html", ctx(
+        return deps.templates.TemplateResponse(request, "dashboard.html", ctx(
             active_page="dashboard",
             stats=stats, start=start, roi=roi, wr=wr, mode=mode,
             open_positions=open_, closed=closed, signals=signals,
@@ -76,21 +76,21 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
     try:
         (data, pnl_data, sig_outcomes, market_metrics, config_hist,
          stats, all_trades, rolling, best_worst, clv, dma_weights) = await asyncio.gather(
-            db.get_analytics(),
-            db.get_cumulative_pnl(),
-            db.get_signal_outcomes(limit=50),
-            db.get_all_market_metrics(limit=50),
-            db.get_config_history(),
-            db.get_stats(),
-            db.get_all_closed_trades(),
-            db.get_rolling_performance(),
-            db.get_best_worst_trades(),
-            db.get_clv_analytics(),
-            db.get_dma_weights(),
+            deps.db.get_analytics(),
+            deps.db.get_cumulative_pnl(),
+            deps.db.get_signal_outcomes(limit=50),
+            deps.db.get_all_market_metrics(limit=50),
+            deps.db.get_config_history(),
+            deps.db.get_stats(),
+            deps.db.get_all_closed_trades(),
+            deps.db.get_rolling_performance(),
+            deps.db.get_best_worst_trades(),
+            deps.db.get_clv_analytics(),
+            deps.db.get_dma_weights(),
         )
         config_map = {c["tag"]: c["params"] for c in config_hist}
 
-        start = config["BANKROLL"]
+        start = deps.config["BANKROLL"]
         roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
@@ -128,8 +128,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         exec_right = sum(1 for s in exec_sigs if s.get("price_move") and s["price_move"] > 0)
         rej_saved = sum(1 for s in rej_sigs if not (s.get("price_move") and s["price_move"] > 0))
 
-        from routes.deps import _check_api_secret
-        return templates.TemplateResponse(request, "analytics.html", ctx(
+        return deps.templates.TemplateResponse(request, "analytics.html", ctx(
             active_page="analytics",
             stats=stats, wr=wr, ev_pred=ev_pred, ev_act=ev_act,
             data=data, config_rows=config_rows,
@@ -161,14 +160,14 @@ async def scalping(request: Request, page: int = 1):
     try:
         per_page = 20
         stats, open_, pnl_data, data = await asyncio.gather(
-            db.get_micro_stats(),
-            db.get_micro_open_positions(),
-            db.get_micro_cumulative_pnl(),
-            db.get_micro_analytics(),
+            deps.db.get_micro_stats(),
+            deps.db.get_micro_open_positions(),
+            deps.db.get_micro_cumulative_pnl(),
+            deps.db.get_micro_analytics(),
         )
         total_closed = stats["wins"] + stats["losses"]
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
-        closed = await db.get_micro_closed_positions(limit=per_page, offset=(page - 1) * per_page)
+        closed = await deps.db.get_micro_closed_positions(limit=per_page, offset=(page - 1) * per_page)
 
         micro_bankroll = 500.0
         roi = ((stats["bankroll"] - micro_bankroll) / micro_bankroll * 100) if micro_bankroll > 0 else 0
@@ -179,7 +178,7 @@ async def scalping(request: Request, page: int = 1):
         open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
 
-        return templates.TemplateResponse(request, "scalping.html", ctx(
+        return deps.templates.TemplateResponse(request, "scalping.html", ctx(
             active_page="scalping",
             stats=stats, roi=roi, wr=wr, total=total,
             micro_bankroll=micro_bankroll,
@@ -213,7 +212,7 @@ async def model_page(request: Request):
                 health_data = {"status": "offline", "error": str(e)}
 
             try:
-                async with db.pool.acquire() as conn:
+                async with deps.db.pool.acquire() as conn:
                     row = await conn.fetchrow("SELECT metrics FROM ml_models WHERE id='main'")
                     if row and row["metrics"]:
                         m = row["metrics"]
@@ -224,7 +223,7 @@ async def model_page(request: Request):
             except Exception:
                 pass
 
-        return templates.TemplateResponse(request, "model.html", ctx(
+        return deps.templates.TemplateResponse(request, "model.html", ctx(
             active_page="model",
             health=health_data,
             metrics=metrics,

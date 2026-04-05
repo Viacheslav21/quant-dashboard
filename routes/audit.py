@@ -6,8 +6,8 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, Response
 
-from routes.deps import db, config, log
-from routes.deps import compute_sharpe_ratio, compute_max_drawdown, compute_streaks
+import routes.deps as deps
+from routes.deps import log, compute_sharpe_ratio, compute_max_drawdown, compute_streaks
 
 router = APIRouter(prefix="/api")
 
@@ -16,20 +16,20 @@ router = APIRouter(prefix="/api")
 async def system_audit():
     """Full system audit — comprehensive data dump for analysis."""
     try:
-        stats = await db.get_stats()
-        open_pos = await db.get_open_positions()
-        all_trades = await db.get_all_closed_trades()
-        analytics = await db.get_analytics()
-        diagnostics = await db.get_wr_diagnostics()
-        clv = await db.get_clv_analytics()
-        dma = await db.get_dma_weights()
-        rolling = await db.get_rolling_performance()
-        best_worst = await db.get_best_worst_trades()
-        signals = await db.get_recent_signals(limit=30)
-        sig_outcomes = await db.get_signal_outcomes(limit=50)
-        market_metrics = await db.get_all_market_metrics(limit=50)
-        config_hist = await db.get_config_history()
-        start = config["BANKROLL"]
+        stats = await deps.db.get_stats()
+        open_pos = await deps.db.get_open_positions()
+        all_trades = await deps.db.get_all_closed_trades()
+        analytics = await deps.db.get_analytics()
+        diagnostics = await deps.db.get_wr_diagnostics()
+        clv = await deps.db.get_clv_analytics()
+        dma = await deps.db.get_dma_weights()
+        rolling = await deps.db.get_rolling_performance()
+        best_worst = await deps.db.get_best_worst_trades()
+        signals = await deps.db.get_recent_signals(limit=30)
+        sig_outcomes = await deps.db.get_signal_outcomes(limit=50)
+        market_metrics = await deps.db.get_all_market_metrics(limit=50)
+        config_hist = await deps.db.get_config_history()
+        start = deps.config["BANKROLL"]
 
         sharpe = compute_sharpe_ratio(all_trades)
         drawdown = compute_max_drawdown(all_trades, start)
@@ -71,7 +71,7 @@ async def system_audit():
             alerts.append(f"Max drawdown {drawdown['max_dd_pct']:.1f}% > 8% threshold")
         # Theme alerts from patterns
         try:
-            async with db.pool.acquire() as _aconn:
+            async with deps.db.pool.acquire() as _aconn:
                 _bad_themes = await _aconn.fetch("""
                     SELECT category, trade_wr, ev_mult FROM patterns
                     WHERE trade_n >= 10 AND trade_wr < 0.40 ORDER BY trade_wr ASC
@@ -130,7 +130,7 @@ async def system_audit():
 
         # Portfolio concentration
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 theme_conc = await conn.fetch("""
                     SELECT theme, COUNT(*) as cnt, ROUND(SUM(stake_amt)::numeric, 0) as total_stake,
                            ROUND(SUM(unrealized_pnl)::numeric, 2) as total_upnl
@@ -198,7 +198,7 @@ async def system_audit():
                 acc = f"{w['hits']}/{total}" if total > 0 else "no data"
                 lines.append(f"  {w['source']:15s} w={w['weight']:.2f} | {acc}")
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 dma_diag = await conn.fetchrow("""
                     SELECT COUNT(*) as total,
                            SUM(CASE WHEN p.signal_id IS NOT NULL THEN 1 ELSE 0 END) as has_signal_id
@@ -213,7 +213,7 @@ async def system_audit():
 
         # Evidence source accuracy
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 source_accuracy = await conn.fetch("""
                     SELECT key as source, COUNT(*) as total,
                            SUM(CASE WHEN correct THEN 1 ELSE 0 END) as hits,
@@ -274,7 +274,7 @@ async def system_audit():
 
         # Grace period, theme momentum, signal journey, hourly, liquidity
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 grace_stats = await conn.fetch("""
                     SELECT CASE
                         WHEN EXTRACT(EPOCH FROM (closed_at - opened_at))/3600 < 1 THEN 'stopped_<1h'
@@ -353,10 +353,10 @@ async def system_audit():
         lines.append("6. CONFIG & PATTERNS")
         lines.append("━" * 40)
 
-        lines.append(f"\nCurrent: BANKROLL={start} MIN_EV={config['MIN_EV']} MIN_KL={config['MIN_KL']} MAX_KELLY={config['MAX_KELLY_FRAC']} TP={config['TAKE_PROFIT_PCT']} SL={config['STOP_LOSS_PCT']}")
+        lines.append(f"\nCurrent: BANKROLL={start} MIN_EV={deps.config['MIN_EV']} MIN_KL={deps.config['MIN_KL']} MAX_KELLY={deps.config['MAX_KELLY_FRAC']} TP={deps.config['TAKE_PROFIT_PCT']} SL={deps.config['STOP_LOSS_PCT']}")
 
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 patterns = await conn.fetch("""
                     SELECT category, trade_n, trade_wr, trade_roi, kelly_mult, ev_mult
                     FROM patterns WHERE trade_n > 0 ORDER BY trade_n DESC
@@ -374,7 +374,7 @@ async def system_audit():
         lines.append("7. EVIDENCE & FEATURES")
         lines.append("━" * 40)
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 # WR by n_evidence
                 n_ev_stats = await conn.fetch("""
                     SELECT CASE
@@ -528,7 +528,7 @@ async def system_audit():
 
         # === MICRO (SCALPING) BOT (full) ===
         try:
-            micro_stats = await db.get_micro_stats()
+            micro_stats = await deps.db.get_micro_stats()
             if micro_stats and micro_stats.get("wins", 0) + micro_stats.get("losses", 0) > 0:
                 m_total = micro_stats["wins"] + micro_stats["losses"]
                 m_wr = round(micro_stats["wins"] / m_total * 100, 1) if m_total > 0 else 0
@@ -536,14 +536,14 @@ async def system_audit():
                 lines.append(f"  Bankroll: ${micro_stats['bankroll']:.2f} | P&L: ${micro_stats['total_pnl']:+.2f} | WR: {m_wr}% ({micro_stats['wins']}W/{micro_stats['losses']}L)")
                 lines.append(f"  Total trades: {micro_stats.get('total_trades',0)} | Peak equity: ${micro_stats.get('peak_equity',0):.2f}")
 
-                micro_open = await db.get_micro_open_positions()
+                micro_open = await deps.db.get_micro_open_positions()
                 if micro_open:
                     lines.append(f"  Open micro positions: {len(micro_open)}")
                     for p in micro_open:
                         upnl = p.get("unrealized_pnl") or 0
                         lines.append(f"    [{p['side']}] {p.get('question','')[:60]} | entry={p.get('entry_price',0)*100:.1f}c now={((p.get('current_price') or p.get('entry_price',0))*100):.1f}c | uPnL={upnl:+.2f}$ | theme={p.get('theme','?')}")
 
-                micro_analytics = await db.get_micro_analytics()
+                micro_analytics = await deps.db.get_micro_analytics()
                 if micro_analytics.get("by_theme"):
                     lines.append(f"  Micro avg lifetime: {micro_analytics.get('avg_lifetime_hours',0):.1f}h")
                     lines.append(f"  Micro WR by theme:")
@@ -570,7 +570,7 @@ async def system_audit():
 
         # === CALIBRATION TABLE (per-agent from calibration table) ===
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 cal_rows = await conn.fetch("""
                     SELECT agent, ROUND(AVG(brier_score)::numeric, 4) as avg_brier,
                            ROUND(AVG(bias)::numeric, 4) as avg_bias,
@@ -600,11 +600,11 @@ async def system_audit():
 async def micro_audit():
     """Full micro (scalping) bot audit — comprehensive data dump."""
     try:
-        stats = await db.get_micro_stats()
-        open_pos = await db.get_micro_open_positions()
-        closed_all = await db.get_micro_closed_positions(limit=9999, offset=0)
-        analytics = await db.get_micro_analytics()
-        pnl_data = await db.get_micro_cumulative_pnl()
+        stats = await deps.db.get_micro_stats()
+        open_pos = await deps.db.get_micro_open_positions()
+        closed_all = await deps.db.get_micro_closed_positions(limit=9999, offset=0)
+        analytics = await deps.db.get_micro_analytics()
+        pnl_data = await deps.db.get_micro_cumulative_pnl()
 
         start = 500.0
         total = stats["wins"] + stats["losses"]
@@ -730,7 +730,7 @@ async def micro_audit():
         lines.append("━" * 40)
 
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 # WR by entry price bucket
                 entry_wr = await conn.fetch("""
                     SELECT CASE

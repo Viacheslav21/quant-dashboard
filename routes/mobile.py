@@ -5,8 +5,8 @@ import asyncio
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, Response
 
-from routes.deps import db, config, log, to_json
-from routes.deps import compute_sharpe_ratio, compute_max_drawdown, compute_streaks, compute_equity_curve
+import routes.deps as deps
+from routes.deps import log, to_json, compute_sharpe_ratio, compute_max_drawdown, compute_streaks, compute_equity_curve
 
 router = APIRouter(prefix="/api/mobile")
 
@@ -16,10 +16,10 @@ async def mobile_overview():
     """Main screen: bankroll, PnL, WR, open positions summary."""
     try:
         stats, open_pos = await asyncio.gather(
-            db.get_stats(),
-            db.get_open_positions(),
+            deps.db.get_stats(),
+            deps.db.get_open_positions(),
         )
-        start = config["BANKROLL"]
+        start = deps.config["BANKROLL"]
         total = stats["wins"] + stats["losses"]
 
         themes = {}
@@ -53,7 +53,7 @@ async def mobile_positions(status: str = "open", page: int = 1, limit: int = 50)
     """Open or closed positions list."""
     try:
         if status == "open":
-            positions = await db.get_open_positions()
+            positions = await deps.db.get_open_positions()
             result = []
             for p in positions:
                 upnl = p.get("unrealized_pnl") or 0
@@ -73,8 +73,8 @@ async def mobile_positions(status: str = "open", page: int = 1, limit: int = 50)
         else:
             offset = (page - 1) * limit
             positions, total = await asyncio.gather(
-                db.get_closed_positions(limit=limit, offset=offset),
-                db.get_closed_positions_count(),
+                deps.db.get_closed_positions(limit=limit, offset=offset),
+                deps.db.get_closed_positions_count(),
             )
             result = [{
                 "id": p["id"], "question": p.get("question", ""),
@@ -95,13 +95,13 @@ async def mobile_analytics():
     """Analytics: by theme, by side, daily PnL, calibration, DMA, CLV."""
     try:
         data, clv, dma_weights, all_trades, stats = await asyncio.gather(
-            db.get_analytics(),
-            db.get_clv_analytics(),
-            db.get_dma_weights(),
-            db.get_all_closed_trades(),
-            db.get_stats(),
+            deps.db.get_analytics(),
+            deps.db.get_clv_analytics(),
+            deps.db.get_dma_weights(),
+            deps.db.get_all_closed_trades(),
+            deps.db.get_stats(),
         )
-        start = config["BANKROLL"]
+        start = deps.config["BANKROLL"]
 
         sharpe = compute_sharpe_ratio(all_trades)
         drawdown = compute_max_drawdown(all_trades, start)
@@ -124,7 +124,7 @@ async def mobile_analytics():
 async def mobile_daily_pnl(days: int = 30):
     """Daily PnL for chart."""
     try:
-        data = await db.get_analytics()
+        data = await deps.db.get_analytics()
         daily = data.get("daily_pnl", [])[:days]
         return Response(to_json({"daily": daily}), media_type="application/json")
     except Exception as e:
@@ -135,8 +135,8 @@ async def mobile_daily_pnl(days: int = 30):
 async def mobile_equity_curve():
     """Equity curve data for chart."""
     try:
-        all_trades = await db.get_all_closed_trades()
-        start = config["BANKROLL"]
+        all_trades = await deps.db.get_all_closed_trades()
+        start = deps.config["BANKROLL"]
         equity = compute_equity_curve(all_trades, start)
         return Response(to_json({"equity": equity}), media_type="application/json")
     except Exception as e:
