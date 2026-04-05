@@ -185,7 +185,8 @@ class Database:
             by_theme = await conn.fetch("""
                 SELECT theme, COUNT(*) as total,
                     SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
                 FROM positions WHERE status='closed' AND theme IS NOT NULL
                 GROUP BY theme ORDER BY total DESC
             """)

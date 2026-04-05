@@ -580,8 +580,9 @@ async def system_audit():
         lines.append(f"\nBy Theme:")
         for r in analytics["by_theme"]:
             t_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+            total_pnl = float(r.get('total_pnl') or r['avg_pnl'] * r['total'])
             flag = " !" if t_wr < 40 and r['total'] >= 10 else ""
-            lines.append(f"  {r['theme']}: {r['wins']}/{r['total']} ({t_wr}%) avg={r['avg_pnl']:+.2f}${flag}")
+            lines.append(f"  {r['theme']}: {r['wins']}/{r['total']} ({t_wr}%) avg={r['avg_pnl']:+.2f}$ total={total_pnl:+.0f}${flag}")
 
         lines.append(f"\nBy Side:")
         for r in analytics["by_side"]:
