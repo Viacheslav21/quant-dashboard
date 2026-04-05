@@ -76,3 +76,29 @@ async def api_diagnostics():
     except Exception as e:
         log.warning(f"[DASHBOARD] Diagnostics error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/themes")
+async def api_themes():
+    """Theme calibration data with blocked status."""
+    try:
+        themes = await deps.db.get_theme_patterns()
+        return Response(to_json(themes), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/commands/theme-block", response_class=JSONResponse)
+async def cmd_theme_block(request: Request):
+    """Block or unblock a theme for engine trading."""
+    try:
+        body = await request.json()
+        theme = body.get("theme")
+        blocked = body.get("blocked", True)
+        if not theme:
+            return JSONResponse({"error": "theme required"}, status_code=400)
+        await deps.db.set_theme_blocked(theme, blocked)
+        return JSONResponse({"ok": True, "theme": theme, "blocked": blocked})
+    except Exception as e:
+        log.error(f"[CMD] theme block failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)

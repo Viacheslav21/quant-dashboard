@@ -75,7 +75,7 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
 async def analytics(request: Request, date_from: str = None, date_to: str = None):
     try:
         (data, pnl_data, sig_outcomes, market_metrics, config_hist,
-         stats, all_trades, rolling, best_worst, clv, dma_weights) = await asyncio.gather(
+         stats, all_trades, rolling, best_worst, clv, dma_weights, theme_patterns) = await asyncio.gather(
             deps.db.get_analytics(),
             deps.db.get_cumulative_pnl(),
             deps.db.get_signal_outcomes(limit=50),
@@ -87,7 +87,9 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             deps.db.get_best_worst_trades(),
             deps.db.get_clv_analytics(),
             deps.db.get_dma_weights(),
+            deps.db.get_theme_patterns(),
         )
+        blocked_themes = {p["category"] for p in theme_patterns if p.get("blocked")}
         config_map = {c["tag"]: c["params"] for c in config_hist}
 
         start = deps.config["BANKROLL"]
@@ -145,7 +147,7 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             rolling=rolling, best_worst=best_worst,
             exec_right=exec_right, exec_total=len(exec_sigs),
             rej_right=sum(1 for s in rej_sigs if s.get("price_move") and s["price_move"] > 0),
-            rej_saved=rej_saved, clv=clv, dma_weights=dma_weights,
+            rej_saved=rej_saved, clv=clv, dma_weights=dma_weights, blocked_themes=blocked_themes,
             date_from=date_from, date_to=date_to,
             has_api_secret=True,  # simplified — auth checked by middleware
             api_secret_required=bool(os.getenv("API_SECRET", "")),

@@ -135,19 +135,21 @@
   <div class="panel">
     <div class="panel-header"><h2>P&amp;L by Theme</h2><span class="count">{{ data.by_theme|length }}</span></div>
     <table>
-      <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">Wins</th><th class="sortable">WR%</th><th class="sortable">Avg PnL</th><th class="sortable">Total PnL</th></tr>
+      <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">Wins</th><th class="sortable">WR%</th><th class="sortable">Avg PnL</th><th class="sortable">Total PnL</th><th>Block</th></tr>
       {% for r in data.by_theme %}
       {% set wr = (r.wins / r.total * 100)|round(1) if r.total > 0 else 0 %}
-      <tr>
-        <td>{{ r.theme }}</td>
+      {% set is_blocked = r.theme in blocked_themes %}
+      <tr{% if is_blocked %} style="opacity:0.5"{% endif %}>
+        <td>{{ r.theme }}{% if is_blocked %} 🚫{% endif %}</td>
         <td class="num">{{ r.total }}</td>
         <td class="num">{{ r.wins }}</td>
         <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ wr }}%</td>
         <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
         <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
+        <td class="num"><button class="theme-block-btn" data-theme="{{ r.theme }}" data-blocked="{{ 'true' if is_blocked else 'false' }}" style="padding:2px 8px;font-size:11px;cursor:pointer;border:1px solid #555;border-radius:4px;background:{{ '#c62828' if is_blocked else '#333' }};color:#fff">{{ 'Unblock' if is_blocked else 'Block' }}</button></td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="empty">Нет данных</td></tr>
+      <tr><td colspan="7" class="empty">Нет данных</td></tr>
       {% endfor %}
     </table>
   </div>
@@ -502,5 +504,22 @@ function toggleRows(tableId, link){
   hidden.forEach(function(r){r.style.display=showing?'none':'';});
   link.textContent=showing?'Show all ('+hidden.length+')':'Show less';
 }
+// Theme block/unblock buttons
+document.querySelectorAll('.theme-block-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var theme = btn.dataset.theme;
+    var isBlocked = btn.dataset.blocked === 'true';
+    var newBlocked = !isBlocked;
+    if (!confirm((newBlocked ? 'Block' : 'Unblock') + ' theme "' + theme + '"?')) return;
+    fetch('/api/commands/theme-block', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({theme: theme, blocked: newBlocked})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) location.reload();
+      else alert('Error: ' + (data.error || 'unknown'));
+    }).catch(function(e) { alert('Error: ' + e); });
+  });
+});
 </script>
 {% endblock %}

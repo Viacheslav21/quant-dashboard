@@ -654,6 +654,26 @@ class Database:
             "daily_pnl": _clean_list(daily_pnl),
         }
 
+    async def get_theme_patterns(self) -> list:
+        """Get all themes with calibration data and blocked status."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT category, trade_n, trade_wr, trade_roi, kelly_mult, ev_mult,
+                       COALESCE(blocked, FALSE) as blocked
+                FROM patterns ORDER BY COALESCE(trade_n, 0) DESC
+            """)
+            return _clean_list(rows)
+
+    async def set_theme_blocked(self, theme: str, blocked: bool):
+        """Block or unblock a theme for engine trading."""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO patterns (category, base_rate, sample_size, blocked)
+                VALUES ($1, 0.5, 0, $2)
+                ON CONFLICT (category) DO UPDATE SET blocked = $2, updated_at = NOW()
+            """, theme, blocked)
+        log.info(f"[DB] Theme '{theme}' {'BLOCKED' if blocked else 'UNBLOCKED'}")
+
     async def close(self):
         if self.pool:
             await self.pool.close()
