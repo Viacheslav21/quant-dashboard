@@ -504,22 +504,56 @@ function toggleRows(tableId, link){
   hidden.forEach(function(r){r.style.display=showing?'none':'';});
   link.textContent=showing?'Show all ('+hidden.length+')':'Show less';
 }
-// Theme block/unblock buttons
-document.querySelectorAll('.theme-block-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var theme = btn.dataset.theme;
-    var isBlocked = btn.dataset.blocked === 'true';
-    var newBlocked = !isBlocked;
-    if (!confirm((newBlocked ? 'Block' : 'Unblock') + ' theme "' + theme + '"?')) return;
+// Theme block modal
+(function(){
+  var overlay = document.createElement('div');
+  overlay.id = 'theme-modal';
+  overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center';
+  overlay.innerHTML = '<div style="background:#1F2937;border:1px solid #374151;border-radius:12px;padding:24px;min-width:320px;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">'
+    + '<div id="tm-title" style="font-size:16px;font-weight:600;color:#F9FAFB;margin-bottom:8px"></div>'
+    + '<div id="tm-text" style="font-size:13px;color:#9CA3AF;margin-bottom:20px"></div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+    + '<button id="tm-cancel" style="padding:8px 16px;border-radius:8px;border:1px solid #374151;background:#111827;color:#D1D5DB;cursor:pointer;font-size:13px">Cancel</button>'
+    + '<button id="tm-confirm" style="padding:8px 16px;border-radius:8px;border:none;color:#fff;cursor:pointer;font-size:13px;font-weight:500"></button>'
+    + '</div></div>';
+  document.body.appendChild(overlay);
+
+  var pending = null;
+  function hide(){ overlay.style.display='none'; pending=null; }
+  document.getElementById('tm-cancel').onclick = hide;
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) hide(); });
+
+  document.getElementById('tm-confirm').onclick = function(){
+    if(!pending) return;
+    var btn = pending.btn, theme = pending.theme, blocked = pending.blocked;
+    this.textContent = '...';
+    this.disabled = true;
     fetch('/api/commands/theme-block', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({theme: theme, blocked: newBlocked})
-    }).then(function(r) { return r.json(); }).then(function(data) {
-      if (data.ok) location.reload();
-      else alert('Error: ' + (data.error || 'unknown'));
-    }).catch(function(e) { alert('Error: ' + e); });
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({theme:theme, blocked:blocked})
+    }).then(function(r){return r.json()}).then(function(data){
+      if(data.ok) location.reload();
+      else { hide(); btn.textContent='Error'; }
+    }).catch(function(){ hide(); btn.textContent='Error'; });
+  };
+
+  document.querySelectorAll('.theme-block-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var theme = btn.dataset.theme;
+      var isBlocked = btn.dataset.blocked === 'true';
+      var newBlocked = !isBlocked;
+      pending = {btn:btn, theme:theme, blocked:newBlocked};
+      document.getElementById('tm-title').textContent = (newBlocked?'Block':'Unblock') + ' "' + theme + '"';
+      document.getElementById('tm-text').textContent = newBlocked
+        ? 'Engine will stop opening new positions for this theme. Existing positions are not affected.'
+        : 'Engine will resume trading this theme.';
+      var cb = document.getElementById('tm-confirm');
+      cb.textContent = newBlocked ? 'Block' : 'Unblock';
+      cb.disabled = false;
+      cb.style.background = newBlocked ? '#DC2626' : '#059669';
+      overlay.style.display = 'flex';
+    });
   });
-});
+})();
 </script>
 {% endblock %}
