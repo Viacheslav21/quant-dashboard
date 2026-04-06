@@ -752,10 +752,11 @@ async def micro_audit():
                 # WR by stake bucket
                 stake_wr = await conn.fetch("""
                     SELECT CASE
-                        WHEN stake_amt <= 1 THEN '$0-1'
-                        WHEN stake_amt <= 2 THEN '$1-2'
-                        WHEN stake_amt <= 3 THEN '$2-3'
-                        ELSE '$3+' END as bucket,
+                        WHEN stake_amt <= 5 THEN '$0-5'
+                        WHEN stake_amt <= 10 THEN '$5-10'
+                        WHEN stake_amt <= 20 THEN '$10-20'
+                        WHEN stake_amt <= 50 THEN '$20-50'
+                        ELSE '$50+' END as bucket,
                         COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
                         ROUND(SUM(pnl)::numeric, 2) as total_pnl
                     FROM micro_positions WHERE status='closed' AND result IS NOT NULL
@@ -800,6 +801,82 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  SL={float(r['sl'])*100:.0f}%: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$")
 
+                # WR by quality score
+                quality_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN quality_score >= 80 THEN 'Q80+'
+                        WHEN quality_score >= 60 THEN 'Q60-80'
+                        WHEN quality_score >= 40 THEN 'Q40-60'
+                        ELSE 'Q<40' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND quality_score IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if quality_wr:
+                    lines.append(f"\nWR by Quality Score:")
+                    for r in quality_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # WR by days_left at entry
+                days_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN days_left <= 1 THEN '≤1d'
+                        WHEN days_left <= 3 THEN '1-3d'
+                        WHEN days_left <= 5 THEN '3-5d'
+                        ELSE '5d+' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND days_left IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if days_wr:
+                    lines.append(f"\nWR by Days Left at Entry:")
+                    for r in days_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # WR by source (scan vs ws)
+                source_wr = await conn.fetch("""
+                    SELECT COALESCE(source, 'unknown') as source,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL
+                    GROUP BY source ORDER BY total DESC
+                """)
+                if source_wr:
+                    lines.append(f"\nWR by Source:")
+                    for r in source_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['source']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # SL disabled impact (≤3d to expiry)
+                sl_disabled = await conn.fetch("""
+                    SELECT CASE WHEN days_left <= 3 THEN 'SL OFF (≤3d)' ELSE 'SL ON (>3d)' END as group_name,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND days_left IS NOT NULL
+                    GROUP BY group_name ORDER BY group_name
+                """)
+                if sl_disabled:
+                    lines.append(f"\nSL Disabled Impact:")
+                    for r in sl_disabled:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['group_name']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # Theme auto-block status
+                theme_stats = await conn.fetch("""
+                    SELECT theme, trades, wins, losses, ROUND(raw_wr::numeric, 3) as raw_wr,
+                           ROUND(adj_wr::numeric, 3) as adj_wr, blocked, ROUND(total_pnl::numeric, 2) as total_pnl
+                    FROM micro_theme_stats WHERE trades > 0 ORDER BY trades DESC
+                """)
+                if theme_stats:
+                    lines.append(f"\nTheme Calibration:")
+                    for r in theme_stats:
+                        flag = " BLOCKED" if r['blocked'] else ""
+                        lines.append(f"  {r['theme']}: {r['wins']}/{r['trades']} raw={float(r['raw_wr'])*100:.0f}% adj={float(r['adj_wr'])*100:.0f}% pnl={r['total_pnl']:+.2f}${flag}")
+
                 # Repeat losers
                 repeat_losers = await conn.fetch("""
                     SELECT question, COUNT(*) as entries, SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses,
@@ -811,6 +888,18 @@ async def micro_audit():
                     lines.append(f"\nRepeat Losers:")
                     for r in repeat_losers:
                         lines.append(f"  {r['entries']}x {r['losses']}L {r['total_pnl']:+.2f}$ | {r['question'][:60]}")
+
+                # SL blacklist (markets where bot won't re-enter)
+                sl_blacklist = await conn.fetch("""
+                    SELECT market_id, side, question
+                    FROM micro_positions
+                    WHERE close_reason IN ('stop_loss', 'rapid_drop') AND status='closed'
+                    ORDER BY closed_at DESC LIMIT 10
+                """)
+                if sl_blacklist:
+                    lines.append(f"\nRecent SL Blacklist (no re-entry):")
+                    for r in sl_blacklist:
+                        lines.append(f"  {r['side']} {r.get('question', r['market_id'])[:60]}")
 
                 # Expired open positions
                 expired_list = []
