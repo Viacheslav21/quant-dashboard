@@ -161,11 +161,12 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
 async def scalping(request: Request, page: int = 1):
     try:
         per_page = 20
-        stats, open_, pnl_data, data = await asyncio.gather(
+        stats, open_, pnl_data, data, all_closed = await asyncio.gather(
             deps.db.get_micro_stats(),
             deps.db.get_micro_open_positions(),
             deps.db.get_micro_cumulative_pnl(),
             deps.db.get_micro_analytics(),
+            deps.db.get_micro_closed_positions(limit=9999, offset=0),
         )
         total_closed = stats["wins"] + stats["losses"]
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
@@ -179,6 +180,21 @@ async def scalping(request: Request, page: int = 1):
         open_in_profit = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) >= 0)
         open_in_loss = sum(1 for p in open_ if (p.get("unrealized_pnl") or 0) < 0)
         open_total_upnl = sum((p.get("unrealized_pnl") or 0) for p in open_)
+        open_staked = sum(p.get("stake_amt", 0) for p in open_)
+
+        # Best/worst trades
+        best_trade = max(all_closed, key=lambda t: float(t.get("pnl") or 0)) if all_closed else None
+        worst_trade = min(all_closed, key=lambda t: float(t.get("pnl") or 0)) if all_closed else None
+
+        # Theme calibration from micro_theme_stats
+        theme_cal = []
+        try:
+            async with deps.db.pool.acquire() as conn:
+                theme_cal = [dict(r) for r in await conn.fetch(
+                    "SELECT * FROM micro_theme_stats WHERE trades > 0 ORDER BY trades DESC"
+                )]
+        except Exception:
+            pass
 
         return deps.templates.TemplateResponse(request, "scalping.html", ctx(
             active_page="scalping",
@@ -189,8 +205,12 @@ async def scalping(request: Request, page: int = 1):
             open_in_profit=open_in_profit,
             open_in_loss=open_in_loss,
             open_total_upnl=open_total_upnl,
+            open_staked=open_staked,
             total_closed=total_closed, page=page, total_pages=total_pages,
             pnl_data=to_json(pnl_data),
+            daily_data=to_json(data["daily_pnl"]),
+            best_trade=best_trade, worst_trade=worst_trade,
+            theme_cal=theme_cal,
         ))
     except Exception as e:
         log.error(f"[DASHBOARD] Scalping error: {e}", exc_info=True)
