@@ -53,13 +53,16 @@ Procfile
 - Config A/B testing table
 - Breakdown tables: by theme, by source, by side, by close reason
 - Calibration table and chart, CLV analytics, DMA weights
+- Theme block/unblock buttons with custom modal dialog (writes to patterns.blocked via API)
 - Charts: cumulative P&L, daily P&L, calibration, win rate by theme (pie), equity curve, drawdown, P&L distribution histogram
 - Signal backtest (last 50)
 - Market metrics (top 50 active)
 
 ### Scalping (`/scalping`)
-- Micro bot stats: bankroll, P&L, win rate, open positions
-- Micro cumulative P&L chart
+- Micro bot stats: bankroll, P&L, win rate, open positions, staked capital
+- Micro cumulative P&L chart, daily P&L bar chart
+- Best/worst trade cards
+- Theme calibration table (per-theme WR, trades, blocked status)
 - Analytics: by theme, by close reason, by side, daily P&L
 
 ### Model (`/model`)
@@ -71,8 +74,10 @@ Procfile
 - `GET /api` — JSON stats: bankroll, open/closed counts
 - `GET /api/export/positions` — CSV export of closed positions (date filter)
 - `POST /api/commands/close` — Insert close command + NOTIFY to engine
+- `POST /api/commands/theme-block` — Block/unblock a theme (writes to patterns.blocked)
+- `GET /api/themes` — List all themes with blocked status
 - `GET /api/system-audit` — Comprehensive multi-section text audit report
-- `GET /api/micro-audit` — Micro bot audit report
+- `GET /api/micro-audit` — Micro bot audit report (sections: WR by quality score, WR by days left, WR by config tag, theme calibration, SL blacklist)
 - `GET /api/diagnostics` — Deep WR diagnostics in JSON
 - `POST /api/ml/train`, `POST /api/ml/train-only` — Proxy ML training triggers
 - `GET /api/ml/training-status`, `GET /api/ml/health` — ML service status
