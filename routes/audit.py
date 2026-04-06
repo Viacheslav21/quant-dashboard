@@ -801,16 +801,17 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  SL={float(r['sl'])*100:.0f}%: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$")
 
-                # WR by quality score
+                # WR by quality score (join with watchlist which stores quality)
                 quality_wr = await conn.fetch("""
                     SELECT CASE
-                        WHEN quality_score >= 80 THEN 'Q80+'
-                        WHEN quality_score >= 60 THEN 'Q60-80'
-                        WHEN quality_score >= 40 THEN 'Q40-60'
+                        WHEN w.quality >= 80 THEN 'Q80+'
+                        WHEN w.quality >= 60 THEN 'Q60-80'
+                        WHEN w.quality >= 40 THEN 'Q40-60'
                         ELSE 'Q<40' END as bucket,
-                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
-                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND quality_score IS NOT NULL
+                        COUNT(*) as total, SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl, ROUND(SUM(p.pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions p JOIN micro_watchlist w ON p.market_id = w.market_id AND p.side = w.side
+                    WHERE p.status='closed' AND p.result IS NOT NULL AND w.quality IS NOT NULL
                     GROUP BY bucket ORDER BY bucket
                 """)
                 if quality_wr:
@@ -819,16 +820,17 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
-                # WR by days_left at entry
+                # WR by days_left at entry (join with watchlist)
                 days_wr = await conn.fetch("""
                     SELECT CASE
-                        WHEN days_left <= 1 THEN '≤1d'
-                        WHEN days_left <= 3 THEN '1-3d'
-                        WHEN days_left <= 5 THEN '3-5d'
+                        WHEN w.days_left <= 1 THEN '<=1d'
+                        WHEN w.days_left <= 3 THEN '1-3d'
+                        WHEN w.days_left <= 5 THEN '3-5d'
                         ELSE '5d+' END as bucket,
-                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
-                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND days_left IS NOT NULL
+                        COUNT(*) as total, SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl, ROUND(SUM(p.pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions p JOIN micro_watchlist w ON p.market_id = w.market_id AND p.side = w.side
+                    WHERE p.status='closed' AND p.result IS NOT NULL AND w.days_left IS NOT NULL
                     GROUP BY bucket ORDER BY bucket
                 """)
                 if days_wr:
@@ -837,33 +839,19 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
-                # WR by source (scan vs ws)
-                source_wr = await conn.fetch("""
-                    SELECT COALESCE(source, 'unknown') as source,
+                # WR by config_tag (proxy for source/version)
+                tag_wr = await conn.fetch("""
+                    SELECT COALESCE(config_tag, 'unknown') as tag,
                         COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
                         ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
                     FROM micro_positions WHERE status='closed' AND result IS NOT NULL
-                    GROUP BY source ORDER BY total DESC
+                    GROUP BY tag ORDER BY total DESC
                 """)
-                if source_wr:
-                    lines.append(f"\nWR by Source:")
-                    for r in source_wr:
+                if tag_wr:
+                    lines.append(f"\nWR by Config Tag:")
+                    for r in tag_wr:
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"  {r['source']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
-
-                # SL disabled impact (≤3d to expiry)
-                sl_disabled = await conn.fetch("""
-                    SELECT CASE WHEN days_left <= 3 THEN 'SL OFF (≤3d)' ELSE 'SL ON (>3d)' END as group_name,
-                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
-                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND days_left IS NOT NULL
-                    GROUP BY group_name ORDER BY group_name
-                """)
-                if sl_disabled:
-                    lines.append(f"\nSL Disabled Impact:")
-                    for r in sl_disabled:
-                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"  {r['group_name']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+                        lines.append(f"  {r['tag']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
                 # Theme auto-block status
                 theme_stats = await conn.fetch("""
@@ -891,7 +879,7 @@ async def micro_audit():
 
                 # SL blacklist (markets where bot won't re-enter)
                 sl_blacklist = await conn.fetch("""
-                    SELECT market_id, side, question
+                    SELECT market_id, side, question, ROUND(pnl::numeric, 2) as pnl, closed_at
                     FROM micro_positions
                     WHERE close_reason IN ('stop_loss', 'rapid_drop') AND status='closed'
                     ORDER BY closed_at DESC LIMIT 10
@@ -899,7 +887,7 @@ async def micro_audit():
                 if sl_blacklist:
                     lines.append(f"\nRecent SL Blacklist (no re-entry):")
                     for r in sl_blacklist:
-                        lines.append(f"  {r['side']} {r.get('question', r['market_id'])[:60]}")
+                        lines.append(f"  {r['side']} {r['pnl']:+.2f}$ | {r.get('question', r['market_id'])[:55]}")
 
                 # Expired open positions
                 expired_list = []
