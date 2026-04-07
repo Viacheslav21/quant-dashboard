@@ -534,7 +534,7 @@ async def system_audit():
                 m_wr = round(micro_stats["wins"] / m_total * 100, 1) if m_total > 0 else 0
                 lines.append(f"\n## MICRO (SCALPING) BOT")
                 lines.append(f"  Bankroll: ${micro_stats['bankroll']:.2f} | P&L: ${micro_stats['total_pnl']:+.2f} | WR: {m_wr}% ({micro_stats['wins']}W/{micro_stats['losses']}L)")
-                lines.append(f"  Total trades: {micro_stats.get('total_trades',0)} | Peak equity: ${micro_stats.get('peak_equity',0):.2f}")
+                lines.append(f"  Total trades: {micro_stats.get('total_trades',0)}")
 
                 micro_open = await deps.db.get_micro_open_positions()
                 if micro_open:
@@ -853,17 +853,25 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['tag']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
-                # Theme auto-block status
+                # Theme auto-block status (computed from positions)
                 theme_stats = await conn.fetch("""
-                    SELECT theme, trades, wins, losses, ROUND(raw_wr::numeric, 3) as raw_wr,
-                           ROUND(adj_wr::numeric, 3) as adj_wr, blocked, ROUND(total_pnl::numeric, 2) as total_pnl
-                    FROM micro_theme_stats WHERE trades > 0 ORDER BY trades DESC
+                    SELECT p.theme, COUNT(*) as trades,
+                        SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN p.result='LOSS' THEN 1 ELSE 0 END) as losses,
+                        ROUND(SUM(p.pnl)::numeric, 2) as total_pnl,
+                        COALESCE(t.blocked, false) as blocked
+                    FROM micro_positions p
+                    LEFT JOIN micro_theme_stats t ON p.theme = t.theme
+                    WHERE p.status = 'closed' AND p.theme IS NOT NULL
+                    GROUP BY p.theme, t.blocked
+                    ORDER BY COUNT(*) DESC
                 """)
                 if theme_stats:
                     lines.append(f"\nTheme Calibration:")
                     for r in theme_stats:
                         flag = " BLOCKED" if r['blocked'] else ""
-                        lines.append(f"  {r['theme']}: {r['wins']}/{r['trades']} raw={float(r['raw_wr'])*100:.0f}% adj={float(r['adj_wr'])*100:.0f}% pnl={r['total_pnl']:+.2f}${flag}")
+                        wr = int(r['wins']) * 100 // int(r['trades']) if int(r['trades']) > 0 else 0
+                        lines.append(f"  {r['theme']}: {r['wins']}/{r['trades']} WR={wr}% pnl={r['total_pnl']:+.2f}${flag}")
 
                 # Repeat losers
                 repeat_losers = await conn.fetch("""

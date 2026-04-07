@@ -187,14 +187,13 @@
 <div class="panel">
   <div class="panel-header"><h2>Theme Calibration</h2><span class="count">{{ theme_cal|length }}</span></div>
   <table>
-    <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L</th><th class="sortable">Raw WR</th><th class="sortable">Adj WR</th><th class="sortable">P&amp;L</th><th>Block</th></tr>
+    <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">P&amp;L</th><th>Block</th></tr>
     {% for t in theme_cal %}
+    {% set wr = (t.wins * 100 / t.trades)|round|int if t.trades > 0 else 0 %}
     <tr{% if t.blocked %} style="opacity:0.5"{% endif %}>
       <td>{{ t.theme }}{% if t.blocked %} 🚫{% endif %}</td>
       <td class="num">{{ t.trades }}</td>
-      <td class="num">{{ t.wins }}/{{ t.losses }}</td>
-      <td class="num">{{ "%.0f"|format((t.raw_wr or 0) * 100) }}%</td>
-      <td class="num" style="color:{{ '#EF4444' if (t.adj_wr or 0) < 0.4 else '#10B981' if (t.adj_wr or 0) > 0.6 else '#6B7280' }}">{{ "%.0f"|format((t.adj_wr or 0) * 100) }}%</td>
+      <td class="num" style="color:{{ wr_color(t.wins, t.trades) }}">{{ t.wins }}/{{ t.losses }} ({{ wr }}%)</td>
       <td class="num" style="color:{{ pc(t.total_pnl or 0) }}">{{ "%+.2f"|format(t.total_pnl or 0) }}$</td>
       <td class="num"><button class="micro-theme-btn" data-theme="{{ t.theme }}" data-blocked="{{ 'true' if t.blocked else 'false' }}" style="padding:2px 8px;font-size:11px;cursor:pointer;border:1px solid #555;border-radius:4px;background:{{ '#c62828' if t.blocked else '#333' }};color:#fff">{{ 'Unblock' if t.blocked else 'Block' }}</button></td>
     </tr>

@@ -186,13 +186,23 @@ async def scalping(request: Request, page: int = 1):
         best_trade = max(all_closed, key=lambda t: float(t.get("pnl") or 0)) if all_closed else None
         worst_trade = min(all_closed, key=lambda t: float(t.get("pnl") or 0)) if all_closed else None
 
-        # Theme calibration from micro_theme_stats
+        # Theme calibration computed from positions + blocked flag
         theme_cal = []
         try:
             async with deps.db.pool.acquire() as conn:
-                theme_cal = [dict(r) for r in await conn.fetch(
-                    "SELECT * FROM micro_theme_stats WHERE trades > 0 ORDER BY trades DESC"
-                )]
+                theme_cal = [dict(r) for r in await conn.fetch("""
+                    SELECT p.theme,
+                        COUNT(*) as trades,
+                        SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN p.result='LOSS' THEN 1 ELSE 0 END) as losses,
+                        ROUND(SUM(p.pnl)::numeric, 2) as total_pnl,
+                        COALESCE(t.blocked, false) as blocked
+                    FROM micro_positions p
+                    LEFT JOIN micro_theme_stats t ON p.theme = t.theme
+                    WHERE p.status = 'closed' AND p.theme IS NOT NULL
+                    GROUP BY p.theme, t.blocked
+                    ORDER BY COUNT(*) DESC
+                """)]
         except Exception:
             pass
 
