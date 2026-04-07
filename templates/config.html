@@ -111,9 +111,9 @@
         </td>
         <td class="num" style="color:#6B7280;font-size:11px">{{ p.value_type }}</td>
         <td class="range-cell num">
-          {% if p.min_val is not none %}{{ p.min_val }}{% endif %}
+          {% if p.min_val is not none %}{{ '%g' % p.min_val }}{% endif %}
           {% if p.min_val is not none or p.max_val is not none %}&ndash;{% endif %}
-          {% if p.max_val is not none %}{{ p.max_val }}{% endif %}
+          {% if p.max_val is not none %}{{ '%g' % p.max_val }}{% endif %}
         </td>
         <td class="desc-cell">{{ p.description }}</td>
         <td class="num"><span class="ver-badge">v{{ p.version }}</span></td>
