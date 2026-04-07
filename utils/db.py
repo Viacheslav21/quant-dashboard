@@ -586,20 +586,29 @@ class Database:
 
     # ── Micro (scalping) tables (read-only) ──
 
-    async def get_micro_stats(self) -> dict:
+    async def get_micro_stats(self, starting_bankroll: float = 500.0) -> dict:
+        """Compute micro stats from positions. No separate stats table needed."""
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT bankroll, total_pnl, wins, losses, total_trades, peak_equity FROM micro_stats WHERE id=1")
-            if row:
-                r = _clean(row)
-                return {
-                    "bankroll": float(r.get("bankroll") or 0),
-                    "total_pnl": float(r.get("total_pnl") or 0),
-                    "wins": int(r.get("wins") or 0),
-                    "losses": int(r.get("losses") or 0),
-                    "total_trades": int(r.get("total_trades") or 0),
-                    "peak_equity": float(r.get("peak_equity") or 0),
-                }
-            return {"bankroll": 0.0, "total_pnl": 0.0, "wins": 0, "losses": 0, "total_trades": 0, "peak_equity": 0.0}
+            row = await conn.fetchrow("""
+                SELECT
+                    COALESCE(SUM(pnl), 0) as total_pnl,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses,
+                    COUNT(*) as total_trades
+                FROM micro_positions WHERE status='closed'
+            """)
+            open_staked = await conn.fetchval(
+                "SELECT COALESCE(SUM(stake_amt), 0) FROM micro_positions WHERE status='open'"
+            )
+        total_pnl = float(row["total_pnl"]) if row else 0
+        return {
+            "bankroll": round(starting_bankroll + total_pnl - float(open_staked or 0), 2),
+            "total_pnl": round(total_pnl, 2),
+            "wins": int(row["wins"] or 0) if row else 0,
+            "losses": int(row["losses"] or 0) if row else 0,
+            "total_trades": int(row["total_trades"] or 0) if row else 0,
+            "peak_equity": 0.0,
+        }
 
     async def get_micro_open_positions(self) -> list:
         async with self.pool.acquire() as conn:
