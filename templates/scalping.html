@@ -33,25 +33,6 @@
   </div>
 </div>
 
-<!-- Best / Worst -->
-{% if best_trade or worst_trade %}
-<div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:0">
-  {% if best_trade %}
-  <div class="card" style="border-left:3px solid #10B981">
-    <div class="label">Best Trade</div>
-    <div class="value num" style="color:#10B981;font-size:20px">{{ "%+.2f"|format(best_trade.pnl or 0) }}$</div>
-    <div class="sub" style="margin-top:4px">{{ (best_trade.question or '')[:60] }}</div>
-  </div>
-  {% endif %}
-  {% if worst_trade %}
-  <div class="card" style="border-left:3px solid #EF4444">
-    <div class="label">Worst Trade</div>
-    <div class="value num" style="color:#EF4444;font-size:20px">{{ "%+.2f"|format(worst_trade.pnl or 0) }}$</div>
-    <div class="sub" style="margin-top:4px">{{ (worst_trade.question or '')[:60] }}</div>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
 
 <!-- Cumulative PnL -->
 <div class="panel" style="padding:20px;margin-bottom:20px">
@@ -181,7 +162,7 @@
 <div class="panel">
   <div class="panel-header"><h2>Theme Calibration</h2><span class="count">{{ theme_cal|length }}</span></div>
   <table>
-    <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L</th><th class="sortable">Raw WR</th><th class="sortable">Adj WR</th><th class="sortable">P&amp;L</th><th>Status</th></tr>
+    <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L</th><th class="sortable">Raw WR</th><th class="sortable">Adj WR</th><th class="sortable">P&amp;L</th><th>Block</th></tr>
     {% for t in theme_cal %}
     <tr{% if t.blocked %} style="opacity:0.5"{% endif %}>
       <td>{{ t.theme }}{% if t.blocked %} 🚫{% endif %}</td>
@@ -190,7 +171,7 @@
       <td class="num">{{ "%.0f"|format((t.raw_wr or 0) * 100) }}%</td>
       <td class="num" style="color:{{ '#EF4444' if (t.adj_wr or 0) < 0.4 else '#10B981' if (t.adj_wr or 0) > 0.6 else '#6B7280' }}">{{ "%.0f"|format((t.adj_wr or 0) * 100) }}%</td>
       <td class="num" style="color:{{ pc(t.total_pnl or 0) }}">{{ "%+.2f"|format(t.total_pnl or 0) }}$</td>
-      <td>{% if t.blocked %}<span style="color:#EF4444;font-size:11px">BLOCKED</span>{% else %}<span style="color:#10B981;font-size:11px">ACTIVE</span>{% endif %}</td>
+      <td class="num"><button class="micro-theme-btn" data-theme="{{ t.theme }}" data-blocked="{{ 'true' if t.blocked else 'false' }}" style="padding:2px 8px;font-size:11px;cursor:pointer;border:1px solid #555;border-radius:4px;background:{{ '#c62828' if t.blocked else '#333' }};color:#fff">{{ 'Unblock' if t.blocked else 'Block' }}</button></td>
     </tr>
     {% endfor %}
   </table>
@@ -319,5 +300,52 @@ async function runMicroAudit(){
     btn.disabled=false;btn.textContent='Full Audit';btn.style.background='#06B6D4';
   }
 }
+// Micro theme block modal
+(function(){
+  var overlay = document.createElement('div');
+  overlay.id = 'micro-theme-modal';
+  overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center';
+  overlay.innerHTML = '<div style="background:#1F2937;border:1px solid #374151;border-radius:12px;padding:24px;min-width:320px;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">'
+    + '<div id="mtm-title" style="font-size:16px;font-weight:600;color:#F9FAFB;margin-bottom:8px"></div>'
+    + '<div id="mtm-text" style="font-size:13px;color:#9CA3AF;margin-bottom:20px"></div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end">'
+    + '<button id="mtm-cancel" style="padding:8px 16px;border-radius:8px;border:1px solid #374151;background:#111827;color:#D1D5DB;cursor:pointer;font-size:13px">Cancel</button>'
+    + '<button id="mtm-confirm" style="padding:8px 16px;border-radius:8px;border:none;color:#fff;cursor:pointer;font-size:13px;font-weight:500"></button>'
+    + '</div></div>';
+  document.body.appendChild(overlay);
+  var pending = null;
+  function hide(){ overlay.style.display='none'; pending=null; }
+  document.getElementById('mtm-cancel').onclick = hide;
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) hide(); });
+  document.getElementById('mtm-confirm').onclick = function(){
+    if(!pending) return;
+    var btn=pending.btn, theme=pending.theme, blocked=pending.blocked;
+    this.textContent='...'; this.disabled=true;
+    fetch('/api/commands/micro-theme-block', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({theme:theme, blocked:blocked})
+    }).then(function(r){return r.json()}).then(function(data){
+      if(data.ok) location.reload();
+      else { hide(); btn.textContent='Error'; }
+    }).catch(function(){ hide(); btn.textContent='Error'; });
+  };
+  document.querySelectorAll('.micro-theme-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var theme=btn.dataset.theme;
+      var isBlocked=btn.dataset.blocked==='true';
+      var newBlocked=!isBlocked;
+      pending={btn:btn, theme:theme, blocked:newBlocked};
+      document.getElementById('mtm-title').textContent=(newBlocked?'Block':'Unblock')+' "'+theme+'" in Micro';
+      document.getElementById('mtm-text').textContent=newBlocked
+        ? 'Micro bot will stop opening new positions for this theme.'
+        : 'Micro bot will resume trading this theme.';
+      var cb=document.getElementById('mtm-confirm');
+      cb.textContent=newBlocked?'Block':'Unblock';
+      cb.disabled=false;
+      cb.style.background=newBlocked?'#DC2626':'#059669';
+      overlay.style.display='flex';
+    });
+  });
+})();
 </script>
 {% endblock %}

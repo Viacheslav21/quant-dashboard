@@ -102,3 +102,19 @@ async def cmd_theme_block(request: Request):
     except Exception as e:
         log.error(f"[CMD] theme block failed: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/commands/micro-theme-block", response_class=JSONResponse)
+async def cmd_micro_theme_block(request: Request):
+    """Block or unblock a theme for micro trading."""
+    try:
+        body = await request.json()
+        theme = body.get("theme")
+        blocked = body.get("blocked", True)
+        if not theme:
+            return JSONResponse({"error": "theme required"}, status_code=400)
+        await deps.db.set_micro_theme_blocked(theme, blocked)
+        return JSONResponse({"ok": True, "theme": theme, "blocked": blocked})
+    except Exception as e:
+        log.error(f"[CMD] micro theme block failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)

@@ -672,7 +672,17 @@ class Database:
                 VALUES ($1, 0.5, 0, $2)
                 ON CONFLICT (category) DO UPDATE SET blocked = $2, updated_at = NOW()
             """, theme, blocked)
-        log.info(f"[DB] Theme '{theme}' {'BLOCKED' if blocked else 'UNBLOCKED'}")
+        log.info(f"[DB] Engine theme '{theme}' {'BLOCKED' if blocked else 'UNBLOCKED'}")
+
+    async def set_micro_theme_blocked(self, theme: str, blocked: bool):
+        """Block or unblock a theme for micro trading."""
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO micro_theme_stats (theme, blocked)
+                VALUES ($1, $2)
+                ON CONFLICT (theme) DO UPDATE SET blocked = $2, updated_at = NOW()
+            """, theme, blocked)
+        log.info(f"[DB] Micro theme '{theme}' {'BLOCKED' if blocked else 'UNBLOCKED'}")
 
     async def close(self):
         if self.pool:
