@@ -253,3 +253,32 @@ async def model_page(request: Request):
     except Exception as e:
         log.error(f"[DASHBOARD] Model page error: {e}", exc_info=True)
         return HTMLResponse(f"<h1>Model Error</h1><pre>{e}</pre>", status_code=500)
+
+
+@router.get("/config", response_class=HTMLResponse)
+async def config_page(request: Request):
+    try:
+        configs, history = await asyncio.gather(
+            deps.db.get_all_config(),
+            deps.db.get_config_history(limit=30),
+        )
+        # Group by service then section
+        grouped = {}
+        for c in configs:
+            svc = c.get("service", "unknown")
+            sec = c.get("section", "general")
+            grouped.setdefault(svc, {}).setdefault(sec, []).append(c)
+
+        max_version = max((c.get("version", 0) for c in configs), default=0) if configs else 0
+
+        return deps.templates.TemplateResponse(request, "config.html", ctx(
+            active_page="config",
+            grouped=grouped,
+            history=history,
+            max_version=max_version,
+            engine_count=sum(len(v) for v in grouped.get("engine", {}).values()),
+            micro_count=sum(len(v) for v in grouped.get("micro", {}).values()),
+        ))
+    except Exception as e:
+        log.error(f"[DASHBOARD] Config page error: {e}", exc_info=True)
+        return HTMLResponse(f"<h1>Config Error</h1><pre>{e}</pre>", status_code=500)

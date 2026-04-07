@@ -118,3 +118,42 @@ async def cmd_micro_theme_block(request: Request):
     except Exception as e:
         log.error(f"[CMD] micro theme block failed: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/config")
+async def api_config():
+    """Get all live config for both services."""
+    try:
+        configs = await deps.db.get_all_config()
+        return Response(to_json(configs), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/config", response_class=JSONResponse)
+async def api_config_update(request: Request):
+    """Update a single config key."""
+    try:
+        body = await request.json()
+        service = body.get("service")
+        key = body.get("key")
+        value = body.get("value")
+        if not all([service, key, value is not None]):
+            return JSONResponse({"error": "service, key, value required"}, status_code=400)
+        result = await deps.db.update_config(service, key, str(value))
+        return JSONResponse(result)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        log.error(f"[CONFIG] Update failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/config/history")
+async def api_config_history():
+    """Recent config changes."""
+    try:
+        history = await deps.db.get_config_history(limit=50)
+        return Response(to_json(history), media_type="application/json")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)

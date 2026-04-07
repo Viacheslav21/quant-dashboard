@@ -51,6 +51,29 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_trader_commands_status
                     ON trader_commands(status) WHERE status='pending';
+                CREATE TABLE IF NOT EXISTS config_live (
+                    id BIGSERIAL PRIMARY KEY,
+                    service TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    value_type TEXT NOT NULL DEFAULT 'str',
+                    description TEXT DEFAULT '',
+                    min_val REAL,
+                    max_val REAL,
+                    section TEXT DEFAULT 'general',
+                    version INTEGER DEFAULT 1,
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(service, key)
+                );
+                CREATE TABLE IF NOT EXISTS config_live_history (
+                    id BIGSERIAL PRIMARY KEY,
+                    service TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    changed_at TIMESTAMPTZ DEFAULT NOW()
+                );
             """)
         log.info("[DB] Dashboard connected to shared database")
 
@@ -683,6 +706,68 @@ class Database:
                 ON CONFLICT (theme) DO UPDATE SET blocked = $2, updated_at = NOW()
             """, theme, blocked)
         log.info(f"[DB] Micro theme '{theme}' {'BLOCKED' if blocked else 'UNBLOCKED'}")
+
+    # ── Live Config ──
+
+    async def get_all_config(self) -> list:
+        """Get all live config for both services."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM config_live ORDER BY service, section, key"
+            )
+        return _clean_list(rows)
+
+    async def update_config(self, service: str, key: str, value: str) -> dict:
+        """Update a single config key with validation and history."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM config_live WHERE service=$1 AND key=$2", service, key
+            )
+            if not row:
+                raise ValueError(f"Config key {service}/{key} not found")
+            # Type validation
+            vtype = row["value_type"]
+            if vtype == "float":
+                num = float(value)
+                if row["min_val"] is not None and num < float(row["min_val"]):
+                    raise ValueError(f"Value {num} below minimum {row['min_val']}")
+                if row["max_val"] is not None and num > float(row["max_val"]):
+                    raise ValueError(f"Value {num} above maximum {row['max_val']}")
+            elif vtype == "int":
+                num = int(float(value))
+                if row["min_val"] is not None and num < int(row["min_val"]):
+                    raise ValueError(f"Value {num} below minimum {int(row['min_val'])}")
+                if row["max_val"] is not None and num > int(row["max_val"]):
+                    raise ValueError(f"Value {num} above maximum {int(row['max_val'])}")
+            elif vtype == "bool":
+                if value.lower() not in ("true", "false", "1", "0", "yes", "no"):
+                    raise ValueError(f"Invalid bool value: {value}")
+
+            old_value = row["value"]
+            new_version = (row["version"] or 0) + 1
+            async with conn.transaction():
+                await conn.execute("""
+                    UPDATE config_live SET value=$1, version=$2, updated_at=NOW()
+                    WHERE service=$3 AND key=$4
+                """, value, new_version, service, key)
+                await conn.execute("""
+                    INSERT INTO config_live_history (service, key, old_value, new_value, version)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, service, key, old_value, value, new_version)
+            # Notify engine/micro to reload config instantly
+            await conn.execute(f"NOTIFY config_reload, '{service}/{key}'")
+            log.info(f"[CONFIG] {service}/{key}: {old_value}→{value} (v{new_version})")
+            return {"ok": True, "version": new_version}
+
+    async def get_config_history(self, limit: int = 50) -> list:
+        """Recent config changes."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT service, key, old_value, new_value, version, changed_at
+                FROM config_live_history
+                ORDER BY changed_at DESC LIMIT $1
+            """, limit)
+        return _clean_list(rows)
 
     async def close(self):
         if self.pool:
