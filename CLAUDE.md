@@ -1,6 +1,6 @@
 # Quant Dashboard
 
-FastAPI dashboard for monitoring a prediction-market trading engine ("quant-engine") and micro bot ("quant-micro"). Connects to a shared PostgreSQL database. Writes only to `trader_commands` (manual close).
+FastAPI dashboard for monitoring a prediction-market trading engine ("quant-engine") and micro bot ("quant-micro"). Connects to a shared PostgreSQL database. Writes to `trader_commands` (manual close), `patterns.blocked` (theme block/unblock), and `config_live` + `config_live_history` (live config editing).
 
 ## Stack
 
@@ -65,6 +65,15 @@ Procfile
 - Theme calibration table (per-theme WR, trades, blocked status)
 - Analytics: by theme, by close reason, by side, daily P&L
 
+### Config (`/config`)
+- Live config editor for all engine and micro parameters (42 total: 23 engine, 15 micro)
+- Parameters grouped by section: signals, risk, sizing, capacity, timing, filters, claude, general
+- Per-parameter validation (type: float/int/bool/str, min/max bounds)
+- Version tracking per key (incremented on each change)
+- Change history log with old/new values and timestamps
+- Writes to `config_live` table + sends `NOTIFY config_reload` for instant pickup by engine and micro
+- Config A/B comparison table also shown on the scalping page
+
 ### Model (`/model`)
 - ML model health check (proxies to quant-ml service)
 - Training metrics, feature importance
@@ -81,6 +90,9 @@ Procfile
 - `GET /api/diagnostics` — Deep WR diagnostics in JSON
 - `POST /api/ml/train`, `POST /api/ml/train-only` — Proxy ML training triggers
 - `GET /api/ml/training-status`, `GET /api/ml/health` — ML service status
+- `GET /api/config` — All live config parameters with current values, sections, types, min/max, versions
+- `POST /api/config` — Update config parameters (validates type + min/max, increments version, writes history, sends NOTIFY config_reload)
+- `GET /api/config/history` — Change history for config_live (key, old/new values, timestamps)
 - **Mobile API**: `/api/mobile/overview`, `/api/mobile/positions`, `/api/mobile/analytics`, `/api/mobile/daily-pnl`, `/api/mobile/equity-curve`
 
 ### Auth

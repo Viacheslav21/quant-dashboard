@@ -140,6 +140,31 @@
     </table>
   </div>
   <div class="panel">
+    <div class="panel-header"><h2>Config A/B</h2></div>
+    <table>
+      <tr>
+        <th class="sortable">Config</th><th class="sortable">Trades</th>
+        <th class="sortable">W/L (WR)</th><th class="sortable">Total PnL</th>
+        <th class="sortable">Avg PnL</th><th class="sortable">Avg Stake</th>
+      </tr>
+      {% for r in data.by_config %}
+      <tr>
+        <td style="font-weight:600">{{ r.config_tag }}</td>
+        <td class="num">{{ r.total }}</td>
+        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+        <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
+        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
+        <td class="num">${{ "%.2f"|format(r.avg_stake|float) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No data</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="panel">
     <div class="panel-header"><h2>Daily P&amp;L (14d)</h2></div>
     <table>
       <tr><th class="sortable">Date</th><th class="sortable">Trades</th><th class="sortable">Win Rate</th><th class="sortable">P&amp;L</th></tr>

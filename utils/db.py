@@ -669,10 +669,20 @@ class Database:
                 FROM micro_positions WHERE status='closed' AND closed_at IS NOT NULL
                 GROUP BY day ORDER BY day DESC LIMIT 14
             """)
+            by_config = await conn.fetch("""
+                SELECT config_tag, COUNT(*) as total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl,
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(AVG(stake_amt)::numeric, 2) as avg_stake
+                FROM micro_positions WHERE status='closed' AND config_tag IS NOT NULL
+                GROUP BY config_tag ORDER BY total DESC
+            """)
         return {
             "by_theme": _clean_list(by_theme),
             "by_reason": _clean_list(by_reason),
             "by_side": _clean_list(by_side),
+            "by_config": _clean_list(by_config),
             "avg_lifetime_hours": float(avg_lifetime["avg_hours"] or 0) if avg_lifetime else 0.0,
             "daily_pnl": _clean_list(daily_pnl),
         }
