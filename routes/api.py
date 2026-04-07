@@ -153,7 +153,7 @@ async def api_config_update(request: Request):
 async def api_config_history():
     """Recent config changes."""
     try:
-        history = await deps.db.get_config_history(limit=50)
+        history = await deps.db.get_config_live_history(limit=50)
         return Response(to_json(history), media_type="application/json")
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

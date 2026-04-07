@@ -270,7 +270,7 @@ async def config_page(request: Request):
     try:
         configs, history = await asyncio.gather(
             deps.db.get_all_config(),
-            deps.db.get_config_history(limit=30),
+            deps.db.get_config_live_history(limit=30),
         )
         # Group by service then section
         grouped = {}

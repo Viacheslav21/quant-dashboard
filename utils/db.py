@@ -778,8 +778,8 @@ class Database:
             log.info(f"[CONFIG] {service}/{key}: {old_value}→{value} (v{new_version})")
             return {"ok": True, "version": new_version}
 
-    async def get_config_history(self, limit: int = 50) -> list:
-        """Recent config changes."""
+    async def get_config_live_history(self, limit: int = 50) -> list:
+        """Recent config_live changes."""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT service, key, old_value, new_value, version, changed_at
