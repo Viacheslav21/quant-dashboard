@@ -82,24 +82,6 @@
 <!-- Analytics tables -->
 <div class="two-col">
   <div class="panel">
-    <div class="panel-header"><h2>By Theme</h2><span class="count">{{ theme_cal|length }}</span></div>
-    <table>
-      <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Total PnL</th><th>Block</th></tr>
-      {% for t in theme_cal %}
-      {% set wr = (t.wins * 100 / t.trades)|round|int if t.trades > 0 else 0 %}
-      <tr{% if t.blocked %} style="opacity:0.5"{% endif %}>
-        <td>{{ t.theme }}{% if t.blocked %} 🚫{% endif %}</td>
-        <td class="num">{{ t.trades }}</td>
-        <td class="num" style="color:{{ wr_color(t.wins, t.trades) }}">{{ t.wins }}/{{ t.losses }} ({{ wr }}%)</td>
-        <td class="num" style="color:{{ pc(t.total_pnl or 0) }}">{{ "%+.2f"|format(t.total_pnl or 0) }}$</td>
-        <td class="num"><button class="micro-theme-btn" data-theme="{{ t.theme }}" data-blocked="{{ 'true' if t.blocked else 'false' }}" style="padding:2px 8px;font-size:11px;cursor:pointer;border:1px solid #555;border-radius:4px;background:{{ '#c62828' if t.blocked else '#333' }};color:#fff">{{ 'Unblock' if t.blocked else 'Block' }}</button></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5" class="empty">No data</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-  <div class="panel">
     <div class="panel-header"><h2>By Close Reason</h2></div>
     <table>
       <tr><th class="sortable">Reason</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
@@ -115,35 +97,54 @@
       {% endfor %}
     </table>
   </div>
-</div>
-
-<div class="two-col">
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>By Side</h2></div>
     <div style="height:200px"><canvas id="sideChart"></canvas></div>
   </div>
-  <div class="panel">
-    <div class="panel-header"><h2>Config A/B</h2></div>
-    <table>
-      <tr>
-        <th class="sortable">Config</th><th class="sortable">Trades</th>
-        <th class="sortable">W/L (WR)</th><th class="sortable">Total PnL</th>
-        <th class="sortable">Avg PnL</th><th class="sortable">Avg Stake</th>
-      </tr>
-      {% for r in data.by_config %}
-      <tr>
-        <td style="font-weight:600">{{ r.config_tag }}</td>
-        <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
-        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
-        <td class="num">${{ "%.2f"|format(r.avg_stake|float) }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="empty">No data</td></tr>
-      {% endfor %}
-    </table>
-  </div>
+</div>
+
+<!-- By Theme (full width) -->
+<div class="panel">
+  <div class="panel-header"><h2>By Theme</h2><span class="count">{{ theme_cal|length }}</span></div>
+  <table>
+    <tr><th class="sortable">Theme</th><th class="sortable">Trades</th><th class="sortable">W/L (WR)</th><th class="sortable">Total PnL</th><th>Block</th></tr>
+    {% for t in theme_cal %}
+    {% set wr = (t.wins * 100 / t.trades)|round|int if t.trades > 0 else 0 %}
+    <tr{% if t.blocked %} style="opacity:0.5"{% endif %}>
+      <td>{{ t.theme }}{% if t.blocked %} 🚫{% endif %}</td>
+      <td class="num">{{ t.trades }}</td>
+      <td class="num" style="color:{{ wr_color(t.wins, t.trades) }}">{{ t.wins }}/{{ t.losses }} ({{ wr }}%)</td>
+      <td class="num" style="color:{{ pc(t.total_pnl or 0) }}">{{ "%+.2f"|format(t.total_pnl or 0) }}$</td>
+      <td class="num"><button class="micro-theme-btn" data-theme="{{ t.theme }}" data-blocked="{{ 'true' if t.blocked else 'false' }}" style="padding:2px 8px;font-size:11px;cursor:pointer;border:1px solid #555;border-radius:4px;background:{{ '#c62828' if t.blocked else '#333' }};color:#fff">{{ 'Unblock' if t.blocked else 'Block' }}</button></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="empty">No data</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- Config A/B -->
+<div class="panel">
+  <div class="panel-header"><h2>Config A/B</h2></div>
+  <table>
+    <tr>
+      <th class="sortable">Config</th><th class="sortable">Trades</th>
+      <th class="sortable">W/L (WR)</th><th class="sortable">Total PnL</th>
+      <th class="sortable">Avg PnL</th><th class="sortable">Avg Stake</th>
+    </tr>
+    {% for r in data.by_config %}
+    <tr>
+      <td style="font-weight:600">{{ r.config_tag }}</td>
+      <td class="num">{{ r.total }}</td>
+      <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
+      <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
+      <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
+      <td class="num">${{ "%.2f"|format(r.avg_stake|float) }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="empty">No data</td></tr>
+    {% endfor %}
+  </table>
 </div>
 
 
