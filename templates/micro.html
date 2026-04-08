@@ -34,12 +34,6 @@
 </div>
 
 
-<!-- Cumulative PnL -->
-<div class="panel" style="padding:20px;margin-bottom:20px">
-  <div class="panel-header" style="padding:0 0 12px 0"><h2>Cumulative P&amp;L</h2></div>
-  <div style="height:250px"><canvas id="pnlChart"></canvas></div>
-</div>
-
 <!-- Daily PnL -->
 <div class="panel" style="padding:20px;margin-bottom:20px">
   <div class="panel-header" style="padding:0 0 12px 0"><h2>Daily P&amp;L</h2></div>
@@ -123,21 +117,9 @@
 </div>
 
 <div class="two-col">
-  <div class="panel">
-    <div class="panel-header"><h2>By Side</h2></div>
-    <table>
-      <tr><th class="sortable">Side</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
-      {% for r in data.by_side %}
-      <tr>
-        <td class="{{ 'yes' if r.side == 'YES' else 'no' }}">{{ r.side }}</td>
-        <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">No data</td></tr>
-      {% endfor %}
-    </table>
+  <div class="panel" style="padding:20px">
+    <div class="panel-header" style="padding:0 0 12px 0"><h2>By Side</h2></div>
+    <div style="height:200px"><canvas id="sideChart"></canvas></div>
   </div>
   <div class="panel">
     <div class="panel-header"><h2>Config A/B</h2></div>
@@ -163,24 +145,6 @@
   </div>
 </div>
 
-<div class="two-col">
-  <div class="panel">
-    <div class="panel-header"><h2>Daily P&amp;L (14d)</h2></div>
-    <table>
-      <tr><th class="sortable">Date</th><th class="sortable">Trades</th><th class="sortable">Win Rate</th><th class="sortable">P&amp;L</th></tr>
-      {% for r in data.daily_pnl %}
-      <tr>
-        <td>{{ r.day }}</td>
-        <td class="num">{{ r.trades }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.trades) }}">{{ r.wins }}/{{ r.trades - r.wins }} ({{ (r.wins * 100 / r.trades)|round|int if r.trades > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.pnl|float) }}">{{ "%+.2f"|format(r.pnl|float) }}$</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">No data</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-</div>
 
 <!-- Theme Calibration -->
 {% if theme_cal %}
@@ -256,28 +220,6 @@
 
 {% block scripts %}
 <script>
-const pnlData = {{ pnl_data|safe }};
-if(pnlData.length > 0){
-  new Chart(document.getElementById('pnlChart'),{
-    type:'line',
-    data:{
-      labels:pnlData.map(d=>new Date(d.t).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})),
-      datasets:[{
-        label:'Cumulative P&L',data:pnlData.map(d=>d.cum),
-        borderColor:pnlData[pnlData.length-1].cum>=0?'#06B6D4':'#EF4444',
-        backgroundColor:'transparent',tension:0.3,pointRadius:2,borderWidth:2
-      }]
-    },
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
-      scales:{
-        x:{ticks:{color:'#6B7280',maxTicksLimit:10},grid:{color:'#1F2937'}},
-        y:{ticks:{color:'#6B7280',callback:v=>'$'+v.toFixed(2)},grid:{color:'#1F2937'}}
-      }
-    }
-  });
-}
-
 // Daily PnL bar chart
 const dailyData = {{ daily_data|safe }};
 if(dailyData.length > 0){
@@ -302,6 +244,18 @@ if(dailyData.length > 0){
         y:{ticks:{color:'#6B7280',callback:v=>'$'+v.toFixed(2)},grid:{color:'#1F2937'}}
       }
     }
+  });
+}
+
+// By Side pie chart
+var sideData = {{ data.by_side|tojson|safe }};
+if(sideData.length > 0){
+  new Chart(document.getElementById('sideChart'),{type:'pie',
+    data:{labels:sideData.map(d=>d.side),
+      datasets:[{data:sideData.map(d=>d.total),backgroundColor:['#3B82F6','#EF4444'],borderColor:'#1F2937',borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'right',labels:{color:'#D1D5DB',font:{size:12},padding:10,usePointStyle:true,pointStyle:'circle'}},
+        tooltip:{callbacks:{label:function(c){var d=sideData[c.dataIndex];var wr=d.total>0?Math.round(d.wins/d.total*100):0;return d.side+': '+d.total+' (WR '+wr+'%, Avg '+d.avg_pnl+'$)'}}}}}
   });
 }
 

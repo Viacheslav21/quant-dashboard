@@ -47,15 +47,6 @@
     <div class="value num" style="color:#EF4444">-{{ "%.1f"|format(drawdown.max_dd_pct) }}%</div>
     <div class="sub">-{{ "%.2f"|format(drawdown.max_dd_abs) }}$</div>
   </div>
-  <div class="card" title="Серии побед/поражений подряд">
-    <div class="label">Streaks</div>
-    <div class="value num">
-      <span style="color:#10B981">{{ streaks.cur_win }}W</span>
-      <span style="color:#6B7280;font-size:16px">/</span>
-      <span style="color:#EF4444">{{ streaks.cur_loss }}L</span>
-    </div>
-    <div class="sub">Max: {{ streaks.max_win }}W / {{ streaks.max_loss }}L</div>
-  </div>
   <div class="card" title="Avg EV и Kelly">
     <div class="label">Avg EV</div>
     <div class="value num" style="color:#3B82F6">+{{ "%.1f"|format(stats.avg_ev * 100) }}%</div>
@@ -68,22 +59,10 @@
   </div>
 </div>
 
-<!-- Charts row: Cumulative PnL + Equity Curve -->
-<div class="row">
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>Cumulative P&amp;L</h2></div>
-    <div style="height:250px"><canvas id="pnlChart"></canvas></div>
-  </div>
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>Equity Curve</h2></div>
-    <div style="height:250px"><canvas id="equityChart"></canvas></div>
-  </div>
-</div>
-
-<!-- Drawdown chart -->
+<!-- Equity Curve -->
 <div class="panel" style="padding:20px;margin-bottom:20px">
-  <div class="panel-header" style="padding:0 0 12px 0"><h2>Drawdown</h2></div>
-  <div style="height:180px"><canvas id="ddChart"></canvas></div>
+  <div class="panel-header" style="padding:0 0 12px 0"><h2>Equity Curve</h2></div>
+  <div style="height:250px"><canvas id="equityChart"></canvas></div>
 </div>
 
 <!-- Open positions -->
@@ -184,26 +163,6 @@
     {% endfor %}
   </table>
 </div>
-
-<!-- Best / Worst trades -->
-{% if best_worst.best or best_worst.worst %}
-<div class="row">
-  {% if best_worst.best %}
-  <div class="card">
-    <div class="label">Best Trade</div>
-    <div class="value num" style="color:#10B981">+{{ "%.2f"|format(best_worst.best.pnl) }}$</div>
-    <div class="sub">{{ best_worst.best.question[:55] }}...</div>
-  </div>
-  {% endif %}
-  {% if best_worst.worst %}
-  <div class="card">
-    <div class="label">Worst Trade</div>
-    <div class="value num" style="color:#EF4444">{{ "%.2f"|format(best_worst.worst.pnl) }}$</div>
-    <div class="sub">{{ best_worst.worst.question[:55] }}...</div>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
 
 <!-- Rolling performance -->
 <div class="row" style="grid-template-columns:repeat(4,1fr)">
@@ -315,27 +274,6 @@ const chartColors = {blue:'#3B82F6',red:'#EF4444',yellow:'#F59E0B',green:'#10B98
 const tickOpts = {color:chartColors.text,font:{size:11}};
 const gridOpts = {color:chartColors.grid};
 
-// Cumulative P&L
-const pnlData = {{ pnl_data|safe }};
-if(pnlData.length > 0){
-  new Chart(document.getElementById('pnlChart'),{
-    type:'line',
-    data:{
-      labels:pnlData.map(d=>new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})),
-      datasets:[{
-        label:'Cumulative P&L ($)',data:pnlData.map(d=>d.cum),
-        borderColor:pnlData[pnlData.length-1].cum>=0?chartColors.blue:chartColors.red,
-        backgroundColor:pnlData[pnlData.length-1].cum>=0?'rgba(59,130,246,0.08)':'rgba(239,68,68,0.08)',
-        fill:true,tension:0.3,pointRadius:pnlData.length>50?0:3,pointHoverRadius:5,borderWidth:2
-      }]
-    },
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`P&L: ${c.parsed.y>=0?'+':''}$${c.parsed.y.toFixed(2)}`}}},
-      scales:{x:{ticks:{...tickOpts,maxTicksLimit:8},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>'$'+v.toFixed(0)},grid:gridOpts}}
-    }
-  });
-}
-
 // Equity Curve
 const eqData = {{ equity_data|safe }};
 if(eqData.length > 1){
@@ -356,25 +294,6 @@ if(eqData.length > 1){
   });
 }
 
-// Drawdown
-const ddData = {{ drawdown_data|safe }};
-if(ddData.length > 0){
-  new Chart(document.getElementById('ddChart'),{
-    type:'line',
-    data:{
-      labels:ddData.map(d=>d.t?new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric'}):''),
-      datasets:[{
-        label:'Drawdown %',data:ddData.map(d=>-d.dd),
-        borderColor:chartColors.red,backgroundColor:'rgba(239,68,68,0.15)',
-        fill:true,tension:0.3,pointRadius:0,borderWidth:1.5
-      }]
-    },
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`Drawdown: ${(-c.parsed.y).toFixed(2)}%`}}},
-      scales:{x:{ticks:{...tickOpts,maxTicksLimit:10},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>v+'%'},grid:gridOpts,max:0}}
-    }
-  });
-}
 // Close position modal
 (function(){
   const overlay = document.getElementById('closeModal');

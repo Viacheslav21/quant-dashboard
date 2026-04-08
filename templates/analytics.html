@@ -155,39 +155,15 @@
   </div>
 </div>
 
-<!-- Charts row 1: Cumulative PnL + Daily PnL -->
+<!-- Charts row: Daily PnL + Calibration -->
 <div class="row">
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>Cumulative P&amp;L</h2></div>
-    <div style="height:280px"><canvas id="cumPnlChart"></canvas></div>
-  </div>
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Daily P&amp;L</h2></div>
     <div style="height:280px"><canvas id="dailyPnlChart"></canvas></div>
   </div>
-</div>
-
-<!-- Charts row 2: Calibration + PnL Distribution -->
-<div class="row">
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Calibration</h2></div>
     <div style="height:280px"><canvas id="calChart"></canvas></div>
-  </div>
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>P&amp;L Distribution</h2></div>
-    <div style="height:280px"><canvas id="distChart"></canvas></div>
-  </div>
-</div>
-
-<!-- Charts row 3: Equity + Drawdown -->
-<div class="row">
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>Equity Curve</h2></div>
-    <div style="height:250px"><canvas id="equityChart"></canvas></div>
-  </div>
-  <div class="panel" style="padding:20px">
-    <div class="panel-header" style="padding:0 0 12px 0"><h2>Drawdown</h2></div>
-    <div style="height:250px"><canvas id="ddChart"></canvas></div>
   </div>
 </div>
 
@@ -437,42 +413,6 @@ if(sideData.length>0){
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:'right',labels:{color:'#D1D5DB',font:{size:11},padding:8,usePointStyle:true,pointStyle:'circle'}},
         tooltip:{callbacks:{label:function(c){var d=sideData[c.dataIndex];var wr=d.total>0?Math.round(d.wins/d.total*100):0;return d.side+': '+d.total+' trades, WR '+wr+'% ('+d.wins+'W/'+(d.total-d.wins)+'L), Avg '+d.avg_pnl+'$'}}}}}
-  });
-}
-
-// Equity Curve
-if(eqData.length>1){
-  new Chart(document.getElementById('equityChart'),{type:'line',
-    data:{labels:eqData.map(d=>d.t?new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric'}):'Start'),
-      datasets:[{label:'Equity',data:eqData.map(d=>d.eq),borderColor:chartColors.blue,backgroundColor:'rgba(59,130,246,0.08)',
-        fill:true,tension:0.3,pointRadius:eqData.length>50?0:3,borderWidth:2}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y.toFixed(2)}}},
-      scales:{x:{ticks:{...tickOpts,maxTicksLimit:8},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>'$'+v},grid:gridOpts}}}
-  });
-}
-
-// Drawdown
-if(ddData.length>0){
-  new Chart(document.getElementById('ddChart'),{type:'line',
-    data:{labels:ddData.map(d=>d.t?new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric'}):''),
-      datasets:[{label:'Drawdown %',data:ddData.map(d=>-d.dd),borderColor:chartColors.red,backgroundColor:'rgba(239,68,68,0.15)',
-        fill:true,tension:0.3,pointRadius:0,borderWidth:1.5}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'DD: '+(-c.parsed.y).toFixed(2)+'%'}}},
-      scales:{x:{ticks:{...tickOpts,maxTicksLimit:10},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>v+'%'},grid:gridOpts,max:0}}}
-  });
-}
-
-// P&L Distribution
-if(distData.labels.length>0){
-  new Chart(document.getElementById('distChart'),{type:'bar',
-    data:{labels:distData.labels,
-      datasets:[{label:'Trades',data:distData.counts,
-        backgroundColor:distData.labels.map(l=>parseFloat(l)>=0?'rgba(59,130,246,0.7)':'rgba(239,68,68,0.7)'),borderRadius:3}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y+' trades'}}},
-      scales:{x:{ticks:{...tickOpts,maxRotation:45},grid:gridOpts},y:{ticks:tickOpts,grid:gridOpts}}}
   });
 }
 
