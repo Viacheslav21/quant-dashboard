@@ -919,6 +919,81 @@ async def micro_audit():
         except Exception as e:
             lines.append(f"\n  Diagnostics error: {e}")
 
+        # ━━━ 5. EFFICIENCY ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("5. EFFICIENCY & SCALING")
+        lines.append("━" * 40)
+
+        # ROI per theme with avg hold time
+        lines.append(f"\nROI by Theme:")
+        for r in analytics["by_theme"]:
+            if r['total'] > 0:
+                theme_trades = [t for t in closed_all if t.get("theme") == r["theme"]]
+                theme_stake = sum(float(t.get("stake_amt", 0)) for t in theme_trades)
+                theme_roi = (float(r['total_pnl']) / theme_stake * 100) if theme_stake > 0 else 0
+                avg_hold = sum(
+                    (t["closed_at"] - t["opened_at"]).total_seconds() / 3600
+                    for t in theme_trades if t.get("closed_at") and t.get("opened_at")
+                    and isinstance(t["closed_at"], datetime) and isinstance(t["opened_at"], datetime)
+                ) / max(len(theme_trades), 1)
+                lines.append(f"  {r['theme']}: ROI={theme_roi:+.1f}% | {r['total']} trades | ${theme_stake:.0f} staked | avg hold {avg_hold:.1f}h")
+
+        # Resolution rate
+        resolved_count = sum(1 for t in closed_all if t.get("close_reason") == "resolved")
+        expired_count = sum(1 for t in closed_all if t.get("close_reason") == "expired")
+        sl_count = sum(1 for t in closed_all if t.get("close_reason") in ("stop_loss", "rapid_drop", "max_loss"))
+        other_count = total - resolved_count - expired_count - sl_count
+        lines.append(f"\nResolution Rate:")
+        lines.append(f"  Resolved: {resolved_count}/{total} ({resolved_count*100//max(total,1)}%) — full payout")
+        lines.append(f"  Expired:  {expired_count}/{total} ({expired_count*100//max(total,1)}%) — partial payout")
+        lines.append(f"  SL/Loss:  {sl_count}/{total} ({sl_count*100//max(total,1)}%) — stopped out")
+        if other_count > 0:
+            lines.append(f"  Other:    {other_count}/{total}")
+
+        # Profit per day
+        n_days = len(analytics["daily_pnl"])
+        if n_days > 0:
+            daily_pnls = [float(d["pnl"]) for d in analytics["daily_pnl"]]
+            avg_daily = sum(daily_pnls) / n_days
+            profitable_days = sum(1 for d in daily_pnls if d > 0)
+            lines.append(f"\nDaily Profit:")
+            lines.append(f"  Avg: ${avg_daily:+.2f}/day | {profitable_days}/{n_days} profitable days ({profitable_days*100//max(n_days,1)}%)")
+            lines.append(f"  Best day: ${max(daily_pnls):+.2f} | Worst day: ${min(daily_pnls):+.2f}")
+            if avg_daily > 0:
+                lines.append(f"  Projected: ${avg_daily*7:.2f}/week | ${avg_daily*30:.2f}/month")
+
+        # Worst case risk on open positions
+        if open_pos:
+            max_loss_cap = 3.0
+            worst_case = len(open_pos) * max_loss_cap
+            total_stake = sum(p.get('stake_amt', 0) for p in open_pos)
+            bankroll_plus_stake = stats['bankroll'] + total_stake
+            lines.append(f"\nOpen Risk:")
+            lines.append(f"  Positions: {len(open_pos)} | Staked: ${total_stake:.2f}")
+            lines.append(f"  Worst case (all hit max_loss): -${worst_case:.2f}")
+            lines.append(f"  Capital utilization: {total_stake/bankroll_plus_stake*100:.0f}%")
+
+        # Scaling analysis
+        avg_stake_actual = sum(float(t.get('stake_amt', 0)) for t in closed_all) / max(total, 1)
+        trades_per_day = total / max(n_days, 1) if n_days > 0 else 0
+        # Scaling table by stake size
+        lines.append(f"\nScaling Table:")
+        lines.append(f"  {'Stake':>7} | {'Avg Win':>8} | {'Max Loss':>9} | {'Daily':>8} | {'Weekly':>8} | {'Monthly':>9} | {'Wins to Cover 1 Loss':>21}")
+        lines.append(f"  {'-'*7}-+-{'-'*8}-+-{'-'*9}-+-{'-'*8}-+-{'-'*8}-+-{'-'*9}-+-{'-'*21}")
+        if total > 0 and avg_win != 0:
+            # Calculate ROI per dollar staked from actual data
+            win_roi = avg_win / avg_stake_actual if avg_stake_actual > 0 else 0
+            loss_ratio = wr / 100  # win probability
+            for stake in [10, 20, 50, 100, 200]:
+                s_avg_win = win_roi * stake
+                s_max_loss = min(3.0, stake * 0.10)  # max_loss capped at $3 or 10%
+                s_net_per_trade = s_avg_win * loss_ratio - s_max_loss * (1 - loss_ratio)
+                s_daily = s_net_per_trade * trades_per_day
+                s_weekly = s_daily * 7
+                s_monthly = s_daily * 30
+                wins_to_cover = int(s_max_loss / s_avg_win) + 1 if s_avg_win > 0 else 999
+                lines.append(f"  ${stake:>6} | ${s_avg_win:>6.2f} | -${s_max_loss:>7.2f} | ${s_daily:>+7.2f} | ${s_weekly:>+7.2f} | ${s_monthly:>+8.2f} | {wins_to_cover:>21}")
+
         lines.append(f"\n{'=' * 60}")
         lines.append("END OF MICRO AUDIT")
 
