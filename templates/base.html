@@ -148,6 +148,11 @@ document.addEventListener('DOMContentLoaded', function(){
         var ca = a.children[idx], cb = b.children[idx];
         if(!ca || !cb) return 0;
         var ta = ca.textContent.trim(), tb = cb.textContent.trim();
+        // Try date parsing (2026-04-10, 04/08 15:30, 08.04 15:30)
+        var da = new Date(ta), db = new Date(tb);
+        if(!isNaN(da) && !isNaN(db) && ta.match(/\d{4}[-\/]|\d{2}[\.\/]\d{2}/)){
+          return dir === 'asc' ? da - db : db - da;
+        }
         var na = parseFloat(ta.replace(/[^\d.\-]/g,'')), nb = parseFloat(tb.replace(/[^\d.\-]/g,''));
         var cmp;
         if(!isNaN(na) && !isNaN(nb)){cmp = na - nb}
