@@ -973,27 +973,6 @@ async def micro_audit():
             lines.append(f"  Worst case (all hit max_loss): -${worst_case:.2f}")
             lines.append(f"  Capital utilization: {total_stake/bankroll_plus_stake*100:.0f}%")
 
-        # Scaling analysis
-        avg_stake_actual = sum(float(t.get('stake_amt', 0)) for t in closed_all) / max(total, 1)
-        trades_per_day = total / max(n_days, 1) if n_days > 0 else 0
-        # Scaling table by stake size
-        lines.append(f"\nScaling Table:")
-        lines.append(f"  {'Stake':>7} | {'Avg Win':>8} | {'Max Loss':>9} | {'Daily':>8} | {'Weekly':>8} | {'Monthly':>9} | {'Wins to Cover 1 Loss':>21}")
-        lines.append(f"  {'-'*7}-+-{'-'*8}-+-{'-'*9}-+-{'-'*8}-+-{'-'*8}-+-{'-'*9}-+-{'-'*21}")
-        if total > 0 and avg_win != 0:
-            # Calculate ROI per dollar staked from actual data
-            win_roi = avg_win / avg_stake_actual if avg_stake_actual > 0 else 0
-            loss_ratio = wr / 100  # win probability
-            for stake in [10, 20, 50, 100, 200]:
-                s_avg_win = win_roi * stake
-                s_max_loss = min(3.0, stake * 0.10)  # max_loss capped at $3 or 10%
-                s_net_per_trade = s_avg_win * loss_ratio - s_max_loss * (1 - loss_ratio)
-                s_daily = s_net_per_trade * trades_per_day
-                s_weekly = s_daily * 7
-                s_monthly = s_daily * 30
-                wins_to_cover = int(s_max_loss / s_avg_win) + 1 if s_avg_win > 0 else 999
-                lines.append(f"  ${stake:>6} | ${s_avg_win:>6.2f} | -${s_max_loss:>7.2f} | ${s_daily:>+7.2f} | ${s_weekly:>+7.2f} | ${s_monthly:>+8.2f} | {wins_to_cover:>21}")
-
         lines.append(f"\n{'=' * 60}")
         lines.append("END OF MICRO AUDIT")
 
