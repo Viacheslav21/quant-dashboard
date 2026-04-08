@@ -957,15 +957,25 @@ async def micro_audit():
         if other_count > 0:
             lines.append(f"  Other:    {other_count}/{total}")
 
-        # Profit per day
+        # Trades per day
         n_days = len(analytics["daily_pnl"])
         if n_days > 0:
+            daily_trades = [int(d.get("trades", 0)) for d in analytics["daily_pnl"]]
             daily_pnls = [float(d["pnl"]) for d in analytics["daily_pnl"]]
+            avg_trades = sum(daily_trades) / n_days
+            max_trades = max(daily_trades) if daily_trades else 0
+            min_trades = min(daily_trades) if daily_trades else 0
+            lines.append(f"\nDaily Volume:")
+            lines.append(f"  Avg: {avg_trades:.1f} trades/day | Best: {max_trades} | Worst: {min_trades}")
+            lines.append(f"  Total: {total} trades over {n_days} days")
+
+            # Profit per day
             avg_daily = sum(daily_pnls) / n_days
             profitable_days = sum(1 for d in daily_pnls if d > 0)
             lines.append(f"\nDaily Profit:")
             lines.append(f"  Avg: ${avg_daily:+.2f}/day | {profitable_days}/{n_days} profitable days ({profitable_days*100//max(n_days,1)}%)")
             lines.append(f"  Best day: ${max(daily_pnls):+.2f} | Worst day: ${min(daily_pnls):+.2f}")
+            lines.append(f"  Avg P&L per trade: ${sum(daily_pnls)/max(total,1):+.3f}")
             if avg_daily > 0:
                 lines.append(f"  Projected: ${avg_daily*7:.2f}/week | ${avg_daily*30:.2f}/month")
 
