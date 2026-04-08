@@ -606,7 +606,14 @@ async def micro_audit():
         analytics = await deps.db.get_micro_analytics()
         pnl_data = await deps.db.get_micro_cumulative_pnl()
 
-        start = 500.0
+        try:
+            async with deps.db.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT value FROM config_live WHERE service='micro' AND key='BANKROLL'"
+                )
+                start = float(row["value"]) if row else 500.0
+        except Exception:
+            start = 500.0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
         roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0

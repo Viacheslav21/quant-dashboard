@@ -177,7 +177,15 @@ async def micro(request: Request, page: int = 1):
         total_pages = max(1, (total_closed + per_page - 1) // per_page)
         closed = await deps.db.get_micro_closed_positions(limit=per_page, offset=(page - 1) * per_page)
 
-        micro_bankroll = 500.0
+        # Read BANKROLL from config_live, fallback to 500
+        try:
+            async with deps.db.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT value FROM config_live WHERE service='micro' AND key='BANKROLL'"
+                )
+                micro_bankroll = float(row["value"]) if row else 500.0
+        except Exception:
+            micro_bankroll = 500.0
         roi = ((stats["bankroll"] - micro_bankroll) / micro_bankroll * 100) if micro_bankroll > 0 else 0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
