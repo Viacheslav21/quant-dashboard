@@ -15,13 +15,13 @@ FastAPI dashboard for monitoring a prediction-market trading engine ("quant-engi
 app.py                — Slim orchestrator: startup, auth, middleware (~180 lines)
 routes/
   deps.py             — Shared dependencies: db, config, templates, helpers
-  pages.py            — HTML pages: /, /analytics, /micro, /model (~230 lines)
-  api.py              — Core API: /api, commands, export, diagnostics (~80 lines)
+  pages.py            — HTML pages: /, /analytics, /micro, /model, /config (~310 lines)
+  api.py              — Core API: /api, commands, export, diagnostics, config (~160 lines)
   mobile.py           — Mobile API: /api/mobile/* (~140 lines)
-  audit.py            — System + micro audit reports (~850 lines)
+  audit.py            — System + micro audit reports (~990 lines)
   ml_proxy.py         — ML service proxy: /api/ml/* (~50 lines)
 utils/
-  db.py               — Database class (asyncpg pool, queries + trader_commands write, TTL cache)
+  db.py               — Database class (asyncpg pool, queries + trader_commands write, config_live read/write, TTL cache) (~800 lines)
   helpers.py           — Shared helpers: pc(), wr_color(), to_json()
   metrics.py           — Pure Python metric computation: Sharpe, drawdown, streaks, equity curve, PnL distribution
 templates/
@@ -29,6 +29,7 @@ templates/
   dashboard.html       — Main dashboard page
   analytics.html       — Analytics page
   micro.html           — Micro bot page
+  config.html          — Live config editor page
   model.html           — ML model health page
   login.html           — Login form
 requirements.txt
@@ -38,11 +39,10 @@ Procfile
 ## Pages
 
 ### Dashboard (`/`)
-- Key metrics: bankroll, ROI, win rate, Sharpe ratio, max drawdown, win/loss streaks, avg EV, open position count
-- Charts: cumulative P&L, equity curve, drawdown
+- Key metrics: bankroll, ROI, win rate, Sharpe ratio, max drawdown, avg EV, open position count
+- Charts: equity curve
 - Open positions table with profit/loss count and total unrealized P&L
 - Recent signals table (10 latest)
-- Best/worst trade cards
 - Rolling 7d/30d performance cards (P&L + win rate)
 - Closed positions history (paginated with OFFSET/LIMIT, date filter, CSV export)
 
@@ -59,15 +59,17 @@ Procfile
 - Market metrics (top 50 active)
 
 ### Micro (`/micro`)
-- Micro bot stats: bankroll, P&L, win rate, open positions, staked capital
-- Micro cumulative P&L chart, daily P&L bar chart
+- Micro bot stats: bankroll (from config_live BANKROLL), P&L, win rate, open positions, staked capital
 - Best/worst trade cards
-- Theme calibration table (per-theme WR, trades, blocked status)
-- Analytics: by theme, by close reason, by side, daily P&L
+- By Close Reason table | By Side pie chart
+- By Theme + Theme Calibration merged table with block/unblock buttons
+- Config A/B comparison table (by config_tag)
+- Daily P&L bar chart
 
 ### Config (`/config`)
-- Live config editor for all engine and micro parameters (42 total: 23 engine, 15 micro)
+- Live config editor for all engine and micro parameters (42 total: 23 engine, 19 micro)
 - Parameters grouped by section: signals, risk, sizing, capacity, timing, filters, claude, general
+- Micro BANKROLL editable (bankroll read from config_live, not hardcoded)
 - Per-parameter validation (type: float/int/bool/str, min/max bounds)
 - Version tracking per key (incremented on each change)
 - Change history log with old/new values and timestamps
