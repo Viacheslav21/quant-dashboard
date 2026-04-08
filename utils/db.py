@@ -635,6 +635,12 @@ class Database:
             """, limit, offset)
             return _clean_list(rows)
 
+    async def get_micro_closed_count(self) -> int:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT COUNT(*) FROM micro_positions WHERE status='closed'"
+            ) or 0
+
     async def get_micro_cumulative_pnl(self) -> list:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""

@@ -17,7 +17,7 @@ routes/
   deps.py             — Shared dependencies: db, config, templates, helpers
   pages.py            — HTML pages: /, /analytics, /micro, /model, /config (~310 lines)
   api.py              — Core API: /api, commands, export, diagnostics, config (~160 lines)
-  mobile.py           — Mobile API: /api/mobile/* (~140 lines)
+  mobile.py           — Mobile API: /api/mobile/* (engine) + /api/mobile/micro/* (~230 lines)
   audit.py            — System + micro audit reports (~990 lines)
   ml_proxy.py         — ML service proxy: /api/ml/* (~50 lines)
 utils/
@@ -95,7 +95,8 @@ Procfile
 - `GET /api/config` — All live config parameters with current values, sections, types, min/max, versions
 - `POST /api/config` — Update config parameters (validates type + min/max, increments version, writes history, sends NOTIFY config_reload)
 - `GET /api/config/history` — Change history for config_live (key, old/new values, timestamps)
-- **Mobile API**: `/api/mobile/overview`, `/api/mobile/positions`, `/api/mobile/analytics`, `/api/mobile/daily-pnl`, `/api/mobile/equity-curve`
+- **Mobile API (Engine)**: `/api/mobile/overview`, `/api/mobile/positions`, `/api/mobile/analytics`, `/api/mobile/daily-pnl`, `/api/mobile/equity-curve`
+- **Mobile API (Micro)**: `/api/mobile/micro/overview`, `/api/mobile/micro/positions`, `/api/mobile/micro/daily-pnl`
 
 ### Auth
 - `GET/POST /login` — Session cookie auth (30-day expiry)
