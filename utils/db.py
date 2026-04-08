@@ -586,8 +586,8 @@ class Database:
 
     # ── Micro (scalping) tables (read-only) ──
 
-    async def get_micro_stats(self, starting_bankroll: float = 500.0) -> dict:
-        """Compute micro stats from positions. No separate stats table needed."""
+    async def get_micro_stats(self) -> dict:
+        """Compute micro stats from positions. Reads BANKROLL from config_live."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT
@@ -600,6 +600,10 @@ class Database:
             open_staked = await conn.fetchval(
                 "SELECT COALESCE(SUM(stake_amt), 0) FROM micro_positions WHERE status='open'"
             )
+            br_row = await conn.fetchval(
+                "SELECT value FROM config_live WHERE service='micro' AND key='BANKROLL'"
+            )
+            starting_bankroll = float(br_row) if br_row else 500.0
         total_pnl = float(row["total_pnl"]) if row else 0
         return {
             "bankroll": round(starting_bankroll + total_pnl - float(open_staked or 0), 2),
