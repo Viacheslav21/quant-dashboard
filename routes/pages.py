@@ -1,4 +1,4 @@
-"""HTML page routes: /, /analytics, /scalping, /model."""
+"""HTML page routes: /, /analytics, /micro, /model."""
 
 import os
 import json
@@ -162,8 +162,8 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         return HTMLResponse(f"<h1>Analytics Error</h1><pre>{e}</pre>", status_code=500)
 
 
-@router.get("/scalping", response_class=HTMLResponse)
-async def scalping(request: Request, page: int = 1):
+@router.get("/micro", response_class=HTMLResponse)
+async def micro(request: Request, page: int = 1):
     try:
         per_page = 20
         stats, open_, pnl_data, data, all_closed = await asyncio.gather(
@@ -218,8 +218,8 @@ async def scalping(request: Request, page: int = 1):
         except Exception:
             pass
 
-        return deps.templates.TemplateResponse(request, "scalping.html", ctx(
-            active_page="scalping",
+        return deps.templates.TemplateResponse(request, "micro.html", ctx(
+            active_page="micro",
             stats=stats, roi=roi, wr=wr, total=total,
             micro_bankroll=micro_bankroll,
             open_positions=open_, closed=closed,
@@ -235,8 +235,8 @@ async def scalping(request: Request, page: int = 1):
             theme_cal=theme_cal,
         ))
     except Exception as e:
-        log.error(f"[DASHBOARD] Scalping error: {e}", exc_info=True)
-        return HTMLResponse(f"<h1>Scalping Error</h1><pre>{e}</pre>", status_code=500)
+        log.error(f"[DASHBOARD] Micro error: {e}", exc_info=True)
+        return HTMLResponse(f"<h1>Micro Error</h1><pre>{e}</pre>", status_code=500)
 
 
 @router.get("/model", response_class=HTMLResponse)

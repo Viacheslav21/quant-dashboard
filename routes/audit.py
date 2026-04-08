@@ -598,7 +598,7 @@ async def system_audit():
 
 @router.get("/micro-audit")
 async def micro_audit():
-    """Full micro (scalping) bot audit — comprehensive data dump."""
+    """Full micro bot audit — comprehensive data dump."""
     try:
         stats = await deps.db.get_micro_stats()
         open_pos = await deps.db.get_micro_open_positions()

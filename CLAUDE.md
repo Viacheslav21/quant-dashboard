@@ -15,7 +15,7 @@ FastAPI dashboard for monitoring a prediction-market trading engine ("quant-engi
 app.py                — Slim orchestrator: startup, auth, middleware (~180 lines)
 routes/
   deps.py             — Shared dependencies: db, config, templates, helpers
-  pages.py            — HTML pages: /, /analytics, /scalping, /model (~230 lines)
+  pages.py            — HTML pages: /, /analytics, /micro, /model (~230 lines)
   api.py              — Core API: /api, commands, export, diagnostics (~80 lines)
   mobile.py           — Mobile API: /api/mobile/* (~140 lines)
   audit.py            — System + micro audit reports (~850 lines)
@@ -28,7 +28,7 @@ templates/
   base.html            — Shared layout: CSS, nav, sort JS, footer
   dashboard.html       — Main dashboard page
   analytics.html       — Analytics page
-  scalping.html        — Micro/scalping bot page
+  micro.html           — Micro bot page
   model.html           — ML model health page
   login.html           — Login form
 requirements.txt
@@ -58,7 +58,7 @@ Procfile
 - Signal backtest (last 50)
 - Market metrics (top 50 active)
 
-### Scalping (`/scalping`)
+### Micro (`/micro`)
 - Micro bot stats: bankroll, P&L, win rate, open positions, staked capital
 - Micro cumulative P&L chart, daily P&L bar chart
 - Best/worst trade cards
@@ -72,7 +72,7 @@ Procfile
 - Version tracking per key (incremented on each change)
 - Change history log with old/new values and timestamps
 - Writes to `config_live` table + sends `NOTIFY config_reload` for instant pickup by engine and micro
-- Config A/B comparison table also shown on the scalping page
+- Config A/B comparison table also shown on the micro page
 
 ### Model (`/model`)
 - ML model health check (proxies to quant-ml service)
