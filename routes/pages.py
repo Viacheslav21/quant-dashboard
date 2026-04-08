@@ -201,7 +201,14 @@ async def scalping(request: Request, page: int = 1):
                     LEFT JOIN micro_theme_stats t ON p.theme = t.theme
                     WHERE p.status = 'closed' AND p.theme IS NOT NULL
                     GROUP BY p.theme, t.blocked
-                    ORDER BY COUNT(*) DESC
+                    UNION ALL
+                    SELECT t.theme, 0, 0, 0, 0.0, t.blocked
+                    FROM micro_theme_stats t
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM micro_positions p
+                        WHERE p.theme = t.theme AND p.status = 'closed'
+                    )
+                    ORDER BY trades DESC
                 """)]
         except Exception:
             pass
