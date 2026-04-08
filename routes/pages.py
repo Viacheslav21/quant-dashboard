@@ -90,6 +90,11 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             deps.db.get_theme_patterns(),
         )
         blocked_themes = {p["category"] for p in theme_patterns if p.get("blocked")}
+        # Add blocked themes with 0 trades so they show in PnL by Theme table
+        existing_themes = {r["theme"] for r in data["by_theme"]}
+        for bt in blocked_themes:
+            if bt not in existing_themes:
+                data["by_theme"].append({"theme": bt, "total": 0, "wins": 0, "avg_pnl": 0, "total_pnl": 0})
         config_map = {c["tag"]: c["params"] for c in config_hist}
 
         start = deps.config["BANKROLL"]
