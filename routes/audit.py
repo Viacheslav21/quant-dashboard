@@ -990,6 +990,48 @@ async def micro_audit():
             lines.append(f"  Worst case (all hit max_loss): -${worst_case:.2f}")
             lines.append(f"  Capital utilization: {total_stake/bankroll_plus_stake*100:.0f}%")
 
+        # ━━━ 6. ALL CLOSED POSITIONS ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("6. CLOSED POSITIONS")
+        lines.append("━" * 40)
+
+        if closed_all:
+            # Header
+            lines.append(f"\n{'Side':<4} {'Result':<5} {'PnL':>8} {'Stake':>7} {'Entry':>6} {'Exit':>6} {'Reason':<12} {'Theme':<10} {'Hold':>6} {'Opened':<16} {'Closed':<16} {'Question'}")
+            lines.append("-" * 140)
+            for t in closed_all:
+                side = t.get("side", "?")
+                result = t.get("result", "?")
+                pnl = float(t.get("pnl") or 0)
+                stake = float(t.get("stake_amt") or 0)
+                entry_p = float(t.get("entry_price") or 0)
+                exit_p = float(t.get("current_price") or entry_p)
+                reason = t.get("close_reason", "?")
+                theme = t.get("theme", "?")
+                opened = t.get("opened_at")
+                closed = t.get("closed_at")
+                question = t.get("question", "")
+
+                # Hold time
+                hold = ""
+                if opened and closed and isinstance(opened, datetime) and isinstance(closed, datetime):
+                    h = (closed - opened).total_seconds() / 3600
+                    hold = f"{h:.1f}h"
+
+                opened_str = opened.strftime("%m/%d %H:%M") if isinstance(opened, datetime) else str(opened)[:16] if opened else ""
+                closed_str = closed.strftime("%m/%d %H:%M") if isinstance(closed, datetime) else str(closed)[:16] if closed else ""
+
+                lines.append(
+                    f"{side:<4} {'W' if result=='WIN' else 'L':<5} "
+                    f"${pnl:>+7.2f} ${stake:>6.2f} "
+                    f"{entry_p*100:>5.1f}c {exit_p*100:>5.1f}c "
+                    f"{reason:<12} {theme:<10} "
+                    f"{hold:>6} {opened_str:<16} {closed_str:<16} "
+                    f"{question[:50]}"
+                )
+        else:
+            lines.append("\nNo closed positions.")
+
         lines.append(f"\n{'=' * 60}")
         lines.append("END OF MICRO AUDIT")
 
