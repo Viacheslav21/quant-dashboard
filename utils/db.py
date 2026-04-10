@@ -629,7 +629,7 @@ class Database:
     async def get_micro_closed_positions(self, limit: int = 100, offset: int = 0) -> list:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
-                SELECT id, question, theme, side, entry_price, current_price, pnl, result,
+                SELECT id, market_id, question, theme, side, entry_price, current_price, pnl, result,
                        close_reason, stake_amt, sl_pct, opened_at, closed_at
                 FROM micro_positions WHERE status='closed' ORDER BY closed_at DESC LIMIT $1 OFFSET $2
             """, limit, offset)

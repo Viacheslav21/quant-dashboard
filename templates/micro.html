@@ -61,7 +61,7 @@
     </tr>
     {% for p in open_positions %}
     <tr>
-      <td class="q">{% if p.url %}<a href="{{ p.url }}" target="_blank" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px">{{ p.question[:70] }}...</a>{% else %}{{ p.question[:70] }}...{% endif %}</td>
+      <td class="q"><a href="{{ p.url or ('https://polymarket.com/market/' + (p.market_id or '')) }}" target="_blank" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px">{{ p.question[:70] }}...</a></td>
       <td class="{{ 'yes' if p.side == 'YES' else 'no' }}">{{ p.side }}</td>
       <td class="num">{{ "%.1f"|format(p.entry_price * 100) }}&#162;</td>
       <td class="num">{{ "%.1f"|format((p.current_price or p.entry_price) * 100) }}&#162;</td>
@@ -174,7 +174,7 @@
     </tr>
     {% for t in closed %}
     <tr>
-      <td class="q">{{ t.question[:60] }}...</td>
+      <td class="q"><a href="https://polymarket.com/market/{{ t.market_id }}" target="_blank" style="color:inherit;text-decoration:underline dotted;text-underline-offset:3px">{{ t.question[:60] }}...</a></td>
       <td class="{{ 'yes' if t.side == 'YES' else 'no' }}">{{ t.side }}</td>
       <td class="num">{{ "%.1f"|format(t.entry_price * 100) }}&#162;&rarr;{{ "%.1f"|format((t.current_price or t.entry_price) * 100) }}&#162;</td>
       <td class="num">{{ t.close_reason or '?' }}</td>
