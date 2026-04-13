@@ -37,7 +37,10 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         closed = await deps.db.get_closed_positions(limit=per_page, offset=(page - 1) * per_page, date_from=df, date_to=dt)
 
         start = deps.config["BANKROLL"]
-        roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
+        # ROI on starting capital — uses realized total_pnl, NOT (bankroll - start).
+        # bankroll nets open stakes, so it would flag a profitable bot as -ROI whenever
+        # a lot of capital is tied up in open positions.
+        roi = (stats["total_pnl"] / start * 100) if start > 0 else 0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
         mode = "Simulation" if (deps.config or {}).get("SIMULATION", True) else "Live"
@@ -98,7 +101,10 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
         config_map = {c["tag"]: c["params"] for c in config_hist}
 
         start = deps.config["BANKROLL"]
-        roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
+        # ROI on starting capital — uses realized total_pnl, NOT (bankroll - start).
+        # bankroll nets open stakes, so it would flag a profitable bot as -ROI whenever
+        # a lot of capital is tied up in open positions.
+        roi = (stats["total_pnl"] / start * 100) if start > 0 else 0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
 

@@ -35,7 +35,9 @@ async def mobile_overview():
             "bankroll": stats["bankroll"],
             "start_bankroll": start,
             "total_pnl": stats["total_pnl"],
-            "roi_pct": round((stats["bankroll"] - start) / start * 100, 1) if start > 0 else 0,
+            # ROI on starting capital — uses realized total_pnl, not bankroll
+            # (bankroll nets open stakes, inflating "loss" when capital is deployed).
+            "roi_pct": round(stats["total_pnl"] / start * 100, 1) if start > 0 else 0,
             "wins": stats["wins"],
             "losses": stats["losses"],
             "wr_pct": round(stats["wins"] / total * 100, 1) if total > 0 else 0,
