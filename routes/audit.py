@@ -37,7 +37,10 @@ async def system_audit():
 
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
-        roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
+        # ROI on starting capital — uses realized total_pnl, NOT (bankroll - start).
+        # bankroll nets open stakes, so it would flag a profitable bot as -ROI whenever
+        # a lot of capital is tied up in open positions.
+        roi = (stats["total_pnl"] / start * 100) if start > 0 else 0
 
         # Build structured text report
         lines = []
@@ -616,7 +619,10 @@ async def micro_audit():
             start = 500.0
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
-        roi = ((stats["bankroll"] - start) / start * 100) if start > 0 else 0
+        # ROI on starting capital — uses realized total_pnl, NOT (bankroll - start).
+        # bankroll nets open stakes, so it would flag a profitable bot as -ROI whenever
+        # a lot of capital is tied up in open positions.
+        roi = (stats["total_pnl"] / start * 100) if start > 0 else 0
 
         sharpe = compute_sharpe_ratio(closed_all)
         drawdown = compute_max_drawdown(closed_all, start)
@@ -651,8 +657,17 @@ async def micro_audit():
             alerts.append(f"ROI negative: {roi:+.1f}%")
         if drawdown['max_dd_pct'] > 10:
             alerts.append(f"Max drawdown {drawdown['max_dd_pct']:.1f}% > 10%")
-        if avg_loss != 0 and abs(avg_win / avg_loss) < 1:
-            alerts.append(f"Win/loss ratio {abs(avg_win/avg_loss):.2f}x < 1x")
+        # EV check replaces naive win/loss ratio — for a resolution harvester with 95% WR
+        # and tiny avg wins vs rare big losses, ratio < 1 is expected AND profitable.
+        # The honest question is: EV per trade = WR × avg_win + (1 − WR) × avg_loss.
+        if total > 0 and (wins_pnl or losses_pnl):
+            wr_frac = stats["wins"] / total
+            ev_per_trade = wr_frac * avg_win + (1 - wr_frac) * avg_loss
+            if ev_per_trade < 0:
+                alerts.append(
+                    f"Negative EV: ${ev_per_trade:+.3f}/trade "
+                    f"({wr:.0f}% × ${avg_win:+.2f} + {(1-wr_frac)*100:.0f}% × ${avg_loss:+.2f})"
+                )
         # 7d performance
         _now = datetime.now(timezone.utc)
         recent_7d = [t for t in closed_all if t.get("closed_at") and (isinstance(t["closed_at"], datetime) and (_now - t["closed_at"]).days < 7)]
