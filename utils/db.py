@@ -618,7 +618,7 @@ class Database:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
-                       mp.current_price, mp.unrealized_pnl, mp.stake_amt, mp.sl_pct,
+                       mp.current_price, mp.unrealized_pnl, mp.stake_amt,
                        mp.end_date, mp.opened_at, m.url
                 FROM micro_positions mp
                 LEFT JOIN markets m ON m.id = mp.market_id
@@ -631,7 +631,7 @@ class Database:
             rows = await conn.fetch("""
                 SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
                        mp.current_price, mp.pnl, mp.result, mp.close_reason, mp.stake_amt,
-                       mp.sl_pct, mp.opened_at, mp.closed_at, m.url
+                       mp.opened_at, mp.closed_at, m.url
                 FROM micro_positions mp
                 LEFT JOIN markets m ON m.id = mp.market_id
                 WHERE mp.status='closed' ORDER BY mp.closed_at DESC LIMIT $1 OFFSET $2

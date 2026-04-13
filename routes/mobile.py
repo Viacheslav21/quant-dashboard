@@ -200,7 +200,6 @@ async def mobile_micro_positions(status: str = "open", page: int = 1, limit: int
                     "current_price": current,
                     "stake": p.get("stake_amt", 0), "upnl": round(upnl, 2),
                     "pnl_pct": round(pnl_pct, 1),
-                    "sl_pct": p.get("sl_pct"),
                     "end_date": p.get("end_date"),
                     "opened_at": p.get("opened_at"),
                 })

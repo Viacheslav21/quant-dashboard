@@ -809,19 +809,8 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
-                # SL distribution
-                sl_dist = await conn.fetch("""
-                    SELECT ROUND(sl_pct::numeric, 2) as sl, COUNT(*) as total,
-                        SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl
-                    FROM micro_positions WHERE status='closed' AND result IS NOT NULL AND sl_pct IS NOT NULL
-                    GROUP BY ROUND(sl_pct::numeric, 2) ORDER BY sl
-                """)
-                if sl_dist:
-                    lines.append(f"\nSL Distribution:")
-                    for r in sl_dist:
-                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
-                        lines.append(f"  SL={float(r['sl'])*100:.0f}%: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$")
+                # SL distribution section removed — micro no longer uses % SL
+                # (MAX_LOSS + RAPID_DROP are the real exit mechanisms).
 
                 # WR by quality score (join with watchlist which stores quality)
                 quality_wr = await conn.fetch("""
