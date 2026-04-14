@@ -737,7 +737,7 @@ class Database:
                   AND EXISTS (
                       SELECT 1 FROM micro_price_history h
                       WHERE h.market_id = p.market_id AND h.side = p.side
-                        AND h.ts >= p.opened_at AND h.ts <= p.closed_at
+                        AND h.ts >= p.opened_at AND h.ts <= p.closed_at + interval '2 seconds'
                   )
                 ORDER BY p.closed_at DESC NULLS LAST
                 LIMIT $1
@@ -749,7 +749,7 @@ class Database:
                     SELECT price, source, ts
                     FROM micro_price_history
                     WHERE market_id = $1 AND side = $2
-                      AND ts >= $3 AND ts <= $4
+                      AND ts >= $3 AND ts <= $4 + interval '2 seconds'
                     ORDER BY ts
                 """, pos["market_id"], pos["side"],
                     pos["opened_at"], pos["closed_at"])
