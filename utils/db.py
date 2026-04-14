@@ -723,16 +723,21 @@ class Database:
         """Fetch price history for the most recent closed positions that have recorded ticks.
         Returns list of {position, ticks} — ticks include delta from previous tick."""
         async with self.pool.acquire() as conn:
-            # Get recent closed positions that have price history
+            # Get recent closed positions that are losses OR had significant price movement
             positions = await conn.fetch("""
                 SELECT p.market_id, p.side, p.question, p.entry_price, p.current_price,
                        p.pnl, p.result, p.close_reason, p.opened_at, p.closed_at,
                        p.stake_amt
                 FROM micro_positions p
                 WHERE p.status = 'closed'
+                  AND (
+                      p.result = 'LOSS'
+                      OR (p.entry_price - p.current_price) > 0.05
+                  )
                   AND EXISTS (
                       SELECT 1 FROM micro_price_history h
                       WHERE h.market_id = p.market_id AND h.side = p.side
+                        AND h.ts >= p.opened_at AND h.ts <= p.closed_at
                   )
                 ORDER BY p.closed_at DESC NULLS LAST
                 LIMIT $1
