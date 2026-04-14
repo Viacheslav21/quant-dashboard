@@ -719,6 +719,40 @@ class Database:
             """)
             return _clean_list(rows)
 
+    async def get_micro_price_paths(self, limit: int = 10) -> list:
+        """Fetch price history for the most recent closed positions that have recorded ticks.
+        Returns list of {position, ticks} — ticks include delta from previous tick."""
+        async with self.pool.acquire() as conn:
+            # Get recent closed positions that have price history
+            positions = await conn.fetch("""
+                SELECT p.market_id, p.side, p.question, p.entry_price, p.current_price,
+                       p.pnl, p.result, p.close_reason, p.opened_at, p.closed_at,
+                       p.stake_amt
+                FROM micro_positions p
+                WHERE p.status = 'closed'
+                  AND EXISTS (
+                      SELECT 1 FROM micro_price_history h
+                      WHERE h.market_id = p.market_id AND h.side = p.side
+                  )
+                ORDER BY p.closed_at DESC NULLS LAST
+                LIMIT $1
+            """, limit)
+
+            result = []
+            for pos in positions:
+                ticks = await conn.fetch("""
+                    SELECT price, source, ts
+                    FROM micro_price_history
+                    WHERE market_id = $1 AND side = $2
+                    ORDER BY ts
+                """, pos["market_id"], pos["side"])
+                result.append({
+                    "pos": dict(pos),
+                    "ticks": [{"price": float(t["price"]), "source": t["source"],
+                               "ts": t["ts"]} for t in ticks],
+                })
+            return result
+
     async def set_theme_blocked(self, theme: str, blocked: bool):
         """Block or unblock a theme for engine trading."""
         async with self.pool.acquire() as conn:

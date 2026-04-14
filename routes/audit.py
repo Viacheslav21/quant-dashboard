@@ -1,5 +1,6 @@
 """Audit routes: /api/system-audit, /api/micro-audit."""
 
+import asyncio
 import re
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
@@ -603,11 +604,14 @@ async def system_audit():
 async def micro_audit():
     """Full micro bot audit — comprehensive data dump."""
     try:
-        stats = await deps.db.get_micro_stats()
-        open_pos = await deps.db.get_micro_open_positions()
-        closed_all = await deps.db.get_micro_closed_positions(limit=9999, offset=0)
-        analytics = await deps.db.get_micro_analytics()
-        pnl_data = await deps.db.get_micro_cumulative_pnl()
+        stats, open_pos, closed_all, analytics, pnl_data, price_paths = await asyncio.gather(
+            deps.db.get_micro_stats(),
+            deps.db.get_micro_open_positions(),
+            deps.db.get_micro_closed_positions(limit=9999, offset=0),
+            deps.db.get_micro_analytics(),
+            deps.db.get_micro_cumulative_pnl(),
+            deps.db.get_micro_price_paths(limit=15),
+        )
 
         try:
             async with deps.db.pool.acquire() as conn:
@@ -1035,6 +1039,52 @@ async def micro_audit():
                 )
         else:
             lines.append("\nNo closed positions.")
+
+        # ━━━ 7. PRICE PATH HISTORY ━━━
+        lines.append("\n" + "━" * 40)
+        lines.append("7. PRICE PATH (last 15 positions with history)")
+        lines.append("━" * 40)
+
+        if not price_paths:
+            lines.append("\nNo price history recorded yet.")
+        else:
+            for entry in price_paths:
+                pos = entry["pos"]
+                ticks = entry["ticks"]
+                question = pos.get("question", "")[:70]
+                side = pos.get("side", "?")
+                result = pos.get("result", "?")
+                reason = pos.get("close_reason", "?")
+                entry_p = float(pos.get("entry_price") or 0)
+                exit_p = float(pos.get("current_price") or entry_p)
+                pnl = float(pos.get("pnl") or 0)
+                closed_at = pos.get("closed_at")
+                closed_str = closed_at.strftime("%m/%d %H:%M") if isinstance(closed_at, datetime) else ""
+
+                marker = "✓" if result == "WIN" else "✗"
+                lines.append(f"\n{marker} {side} ${pnl:+.2f}  {entry_p*100:.1f}¢→{exit_p*100:.1f}¢  [{reason}]  {closed_str}")
+                lines.append(f"  {question}")
+
+                if not ticks:
+                    lines.append("  (no ticks)")
+                    continue
+
+                lines.append(f"  {'Time':<10} {'Price':>7} {'Delta':>7} {'Src'}")
+                lines.append(f"  {'-'*36}")
+                prev_price = None
+                for t in ticks:
+                    price = t["price"]
+                    src = t["source"]
+                    ts = t["ts"]
+                    ts_str = ts.strftime("%H:%M:%S") if hasattr(ts, "strftime") else str(ts)[11:19]
+                    if prev_price is None:
+                        delta_str = "  entry"
+                    else:
+                        delta = (price - prev_price) * 100
+                        arrow = "▼" if delta < 0 else "▲" if delta > 0 else " "
+                        delta_str = f"{arrow}{abs(delta):>5.1f}¢"
+                    lines.append(f"  {ts_str:<10} {price*100:>5.1f}¢  {delta_str:<7} {src}")
+                    prev_price = price
 
         lines.append(f"\n{'=' * 60}")
         lines.append("END OF MICRO AUDIT")
