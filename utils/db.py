@@ -744,8 +744,10 @@ class Database:
                     SELECT price, source, ts
                     FROM micro_price_history
                     WHERE market_id = $1 AND side = $2
+                      AND ts >= $3 AND ts <= $4
                     ORDER BY ts
-                """, pos["market_id"], pos["side"])
+                """, pos["market_id"], pos["side"],
+                    pos["opened_at"], pos["closed_at"])
                 result.append({
                     "pos": dict(pos),
                     "ticks": [{"price": float(t["price"]), "source": t["source"],

@@ -1069,8 +1069,9 @@ async def micro_audit():
                     lines.append("  (no ticks)")
                     continue
 
-                lines.append(f"  {'Time':<10} {'Price':>7} {'Delta':>7} {'Src'}")
-                lines.append(f"  {'-'*36}")
+                entry_p_ticks = float(pos.get("entry_price") or 0)
+                lines.append(f"  {'Time':<10} {'Price':>7} {'Delta':>8}  {'Src'}")
+                lines.append(f"  {'-'*38}")
                 prev_price = None
                 for t in ticks:
                     price = t["price"]
@@ -1078,12 +1079,18 @@ async def micro_audit():
                     ts = t["ts"]
                     ts_str = ts.strftime("%H:%M:%S") if hasattr(ts, "strftime") else str(ts)[11:19]
                     if prev_price is None:
-                        delta_str = "  entry"
+                        # Show delta from entry_price for first tick
+                        delta = (price - entry_p_ticks) * 100
+                        if abs(delta) < 0.05:
+                            delta_str = "  (entry)"
+                        else:
+                            arrow = "▼" if delta < 0 else "▲"
+                            delta_str = f"{arrow}{abs(delta):>5.1f}¢ *"
                     else:
                         delta = (price - prev_price) * 100
-                        arrow = "▼" if delta < 0 else "▲" if delta > 0 else " "
-                        delta_str = f"{arrow}{abs(delta):>5.1f}¢"
-                    lines.append(f"  {ts_str:<10} {price*100:>5.1f}¢  {delta_str:<7} {src}")
+                        arrow = "▼" if delta < -0.05 else "▲" if delta > 0.05 else " "
+                        delta_str = f"{arrow}{abs(delta):>5.1f}¢" if abs(delta) >= 0.05 else "        "
+                    lines.append(f"  {ts_str:<10} {price*100:>5.1f}¢  {delta_str:<9} {src}")
                     prev_price = price
 
         lines.append(f"\n{'=' * 60}")
