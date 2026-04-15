@@ -82,19 +82,7 @@
 <div class="two-col">
   <div class="panel">
     <div class="panel-header"><h2>By Close Reason</h2></div>
-    <table>
-      <tr><th class="sortable">Reason</th><th class="sortable">Total</th><th class="sortable">Win Rate</th><th class="sortable">Avg PnL</th></tr>
-      {% for r in data.by_reason %}
-      <tr>
-        <td>{{ r.reason }}</td>
-        <td class="num">{{ r.total }}</td>
-        <td class="num" style="color:{{ wr_color(r.wins, r.total) }}">{{ r.wins }}/{{ r.total - r.wins }} ({{ (r.wins * 100 / r.total)|round|int if r.total > 0 else 0 }}%)</td>
-        <td class="num" style="color:{{ pc(r.avg_pnl|float) }}">{{ "%+.2f"|format(r.avg_pnl|float) }}$</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="empty">No data</td></tr>
-      {% endfor %}
-    </table>
+    <div style="height:200px;padding:8px 4px"><canvas id="reasonChart"></canvas></div>
   </div>
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>By Side</h2></div>
@@ -214,6 +202,32 @@ if(dailyData.length > 0){
         data:dailyData.map(d=>d.pnl),
         backgroundColor:dailyData.map(d=>d.pnl>=0?'rgba(6,182,212,0.7)':'rgba(239,68,68,0.7)'),
         borderColor:dailyData.map(d=>d.pnl>=0?'#06B6D4':'#EF4444'),
+        borderWidth:1,borderRadius:4
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:function(c){return '$'+c.raw.toFixed(2)}}}
+      },
+      scales:{
+        x:{ticks:{color:'#6B7280'},grid:{display:false}},
+        y:{ticks:{color:'#6B7280',callback:v=>'$'+v.toFixed(2)},grid:{color:'#1F2937'}}
+      }
+    }
+  });
+}
+
+// By Close Reason bar chart
+var reasonData = {{ data.by_reason|tojson|safe }};
+if(reasonData.length > 0){
+  new Chart(document.getElementById('reasonChart'),{
+    type:'bar',
+    data:{
+      labels:reasonData.map(d=>d.reason+' ('+d.total+')'),
+      datasets:[{
+        data:reasonData.map(d=>d.total_pnl),
+        backgroundColor:reasonData.map(d=>d.total_pnl>=0?'rgba(6,182,212,0.7)':'rgba(239,68,68,0.7)'),
+        borderColor:reasonData.map(d=>d.total_pnl>=0?'#06B6D4':'#EF4444'),
         borderWidth:1,borderRadius:4
       }]
     },

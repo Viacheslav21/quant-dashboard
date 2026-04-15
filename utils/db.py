@@ -668,7 +668,8 @@ class Database:
             by_reason = await conn.fetch("""
                 SELECT close_reason as reason, COUNT(*) as total,
                     SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
-                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl
+                    ROUND(AVG(pnl)::numeric, 2) as avg_pnl,
+                    ROUND(SUM(pnl)::numeric, 2) as total_pnl
                 FROM micro_positions WHERE status='closed' AND close_reason IS NOT NULL
                 GROUP BY close_reason ORDER BY total DESC
             """)
