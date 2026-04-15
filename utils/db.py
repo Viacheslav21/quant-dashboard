@@ -749,7 +749,7 @@ class Database:
                     SELECT price, source, ts
                     FROM micro_price_history
                     WHERE market_id = $1 AND side = $2
-                      AND ts >= $3 AND ts <= $4 + interval '2 seconds'
+                      AND ts >= $3 AND ts <= $4::timestamptz + interval '2 seconds'
                     ORDER BY ts
                 """, pos["market_id"], pos["side"],
                     pos["opened_at"], pos["closed_at"])
