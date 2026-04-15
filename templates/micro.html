@@ -82,12 +82,29 @@
 <div class="two-col">
   <div class="panel">
     <div class="panel-header"><h2>By Close Reason</h2></div>
-    <div style="height:200px;padding:8px 4px"><canvas id="reasonChart"></canvas></div>
+    <table>
+      <tr><th class="sortable">Reason</th><th class="sortable">Trades</th><th class="sortable">Total PnL</th></tr>
+      {% for r in data.by_reason %}
+      <tr>
+        <td>{{ r.reason }}</td>
+        <td class="num">{{ r.total }}</td>
+        <td class="num" style="color:{{ pc(r.total_pnl|float) }}">{{ "%+.2f"|format(r.total_pnl|float) }}$</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="empty">No data</td></tr>
+      {% endfor %}
+    </table>
   </div>
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>By Side</h2></div>
     <div style="height:200px"><canvas id="sideChart"></canvas></div>
   </div>
+</div>
+
+<!-- Equity Curve -->
+<div class="panel" style="padding:20px;margin-bottom:20px">
+  <div class="panel-header" style="padding:0 0 12px 0"><h2>Equity Curve</h2></div>
+  <div style="height:220px"><canvas id="microEquityChart"></canvas></div>
 </div>
 
 <!-- By Theme (full width) -->
@@ -217,18 +234,22 @@ if(dailyData.length > 0){
   });
 }
 
-// By Close Reason bar chart
-var reasonData = {{ data.by_reason|tojson|safe }};
-if(reasonData.length > 0){
-  new Chart(document.getElementById('reasonChart'),{
-    type:'bar',
+// Equity Curve
+var pnlData = {{ pnl_data|safe }};
+if(pnlData.length > 0){
+  new Chart(document.getElementById('microEquityChart'),{
+    type:'line',
     data:{
-      labels:reasonData.map(d=>d.reason+' ('+d.total+')'),
+      labels:pnlData.map(d=>new Date(d.t).toLocaleDateString('en',{month:'short',day:'numeric'})),
       datasets:[{
-        data:reasonData.map(d=>d.total_pnl),
-        backgroundColor:reasonData.map(d=>d.total_pnl>=0?'rgba(6,182,212,0.7)':'rgba(239,68,68,0.7)'),
-        borderColor:reasonData.map(d=>d.total_pnl>=0?'#06B6D4':'#EF4444'),
-        borderWidth:1,borderRadius:4
+        label:'Cumulative P&L',
+        data:pnlData.map(d=>d.cum),
+        fill:true,
+        tension:0.3,
+        borderColor:'#3B82F6',
+        backgroundColor:'rgba(59,130,246,0.08)',
+        pointRadius:pnlData.length>50?0:3,
+        borderWidth:2
       }]
     },
     options:{responsive:true,maintainAspectRatio:false,
