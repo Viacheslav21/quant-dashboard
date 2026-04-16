@@ -13,7 +13,8 @@ from routes.deps import log, compute_sharpe_ratio, compute_max_drawdown, compute
 router = APIRouter(prefix="/api")
 
 
-@router.get("/system-audit")
+# ENGINE DISABLED ↓
+# @router.get("/system-audit")
 async def system_audit():
     """Full system audit — comprehensive data dump for analysis."""
     try:

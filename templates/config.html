@@ -54,10 +54,7 @@
     <div class="label">Config Version</div>
     <div class="value num">v{{ max_version }}</div>
   </div>
-  <div class="card">
-    <div class="label">Engine Params</div>
-    <div class="value num">{{ engine_count }}</div>
-  </div>
+  <!-- ENGINE DISABLED: engine_count card removed -->
   <div class="card">
     <div class="label">Micro Params</div>
     <div class="value num">{{ micro_count }}</div>
@@ -65,7 +62,7 @@
 </div>
 
 <!-- Config tables per service -->
-{% for service in ['engine', 'micro'] %}
+{% for service in ['micro'] %}{# ENGINE DISABLED: 'engine' removed #}
 {% if service in grouped %}
 <div class="panel">
   <div class="svc-header">

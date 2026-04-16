@@ -4,6 +4,16 @@
 {% block dot_color %}cyan{% endblock %}
 {% block footer_mode %}Micro{% endblock %}
 
+{% block extra_css %}
+.pnl-period-btn{
+  padding:4px 12px;font-size:12px;font-weight:500;
+  border:1px solid #374151;border-radius:6px;
+  background:none;color:#6B7280;cursor:pointer;transition:all 0.15s;
+}
+.pnl-period-btn:hover{background:#374151;color:#D1D5DB}
+.pnl-period-btn.active{background:#374151;color:#F9FAFB;border-color:#4B5563}
+{% endblock %}
+
 {% block content %}
 <div class="grid">
   <div class="card">
@@ -34,9 +44,16 @@
 </div>
 
 
-<!-- Daily PnL -->
+<!-- P&L Chart (Daily / Weekly / Monthly) -->
 <div class="panel" style="padding:20px;margin-bottom:20px">
-  <div class="panel-header" style="padding:0 0 12px 0"><h2>Daily P&amp;L</h2></div>
+  <div class="panel-header" style="padding:0 0 12px 0;display:flex;justify-content:space-between;align-items:center">
+    <h2 id="pnlChartTitle">Daily P&amp;L</h2>
+    <div style="display:flex;gap:4px">
+      <button class="pnl-period-btn active" data-period="daily">Daily</button>
+      <button class="pnl-period-btn" data-period="weekly">Weekly</button>
+      <button class="pnl-period-btn" data-period="monthly">Monthly</button>
+    </div>
+  </div>
   <div style="height:220px"><canvas id="dailyChart"></canvas></div>
 </div>
 
@@ -207,24 +224,67 @@
 
 {% block scripts %}
 <script>
-// Daily PnL bar chart
+// P&L Chart — Daily / Weekly / Monthly
 const dailyData = {{ daily_data|safe }};
-if(dailyData.length > 0){
-  new Chart(document.getElementById('dailyChart'),{
+
+function weekStart(dateStr){
+  const d=new Date(dateStr+'T00:00:00');
+  const day=d.getDay();
+  const diff=day===0?-6:1-day; // Monday
+  d.setDate(d.getDate()+diff);
+  return d.toISOString().slice(0,10);
+}
+
+function aggregatePnl(period){
+  if(period==='daily') return dailyData.slice();
+  const groups={};
+  for(const d of dailyData){
+    const key=period==='weekly'?weekStart(d.day):d.day.slice(0,7);
+    if(!groups[key]) groups[key]={day:key,pnl:0,trades:0,wins:0};
+    groups[key].pnl+=d.pnl||0;
+    groups[key].trades+=(d.trades||0);
+    groups[key].wins+=(d.wins||0);
+  }
+  return Object.values(groups).sort((a,b)=>a.day.localeCompare(b.day));
+}
+
+function fmtLabel(key,period){
+  if(period==='daily') return key;
+  if(period==='weekly'){
+    const d=new Date(key+'T00:00:00');
+    return d.toLocaleDateString('en',{month:'short',day:'numeric'});
+  }
+  const [yr,mo]=key.split('-');
+  return new Date(+yr,+mo-1,1).toLocaleDateString('en',{month:'short',year:'2-digit'});
+}
+
+const pnlTitles={daily:'Daily P&L',weekly:'Weekly P&L',monthly:'Monthly P&L'};
+let pnlChart=null;
+
+function buildPnlChart(period){
+  const data=aggregatePnl(period);
+  if(pnlChart) pnlChart.destroy();
+  document.getElementById('pnlChartTitle').textContent=pnlTitles[period];
+  if(!data.length) return;
+  pnlChart=new Chart(document.getElementById('dailyChart'),{
     type:'bar',
     data:{
-      labels:dailyData.map(d=>d.day),
+      labels:data.map(d=>fmtLabel(d.day,period)),
       datasets:[{
-        label:'Daily P&L',
-        data:dailyData.map(d=>d.pnl),
-        backgroundColor:dailyData.map(d=>d.pnl>=0?'rgba(6,182,212,0.7)':'rgba(239,68,68,0.7)'),
-        borderColor:dailyData.map(d=>d.pnl>=0?'#06B6D4':'#EF4444'),
+        label:pnlTitles[period],
+        data:data.map(d=>d.pnl),
+        backgroundColor:data.map(d=>d.pnl>=0?'rgba(6,182,212,0.7)':'rgba(239,68,68,0.7)'),
+        borderColor:data.map(d=>d.pnl>=0?'#06B6D4':'#EF4444'),
         borderWidth:1,borderRadius:4
       }]
     },
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:function(c){return '$'+c.raw.toFixed(2)}}}
+        tooltip:{callbacks:{label:function(c){
+          const d=data[c.dataIndex];
+          const wr=d.trades>0?Math.round(d.wins/d.trades*100):0;
+          return ['$'+c.raw.toFixed(2),d.trades+' trades, WR '+wr+'%'];
+        }}}
       },
       scales:{
         x:{ticks:{color:'#6B7280'},grid:{display:false}},
@@ -233,6 +293,16 @@ if(dailyData.length > 0){
     }
   });
 }
+
+buildPnlChart('daily');
+
+document.querySelectorAll('.pnl-period-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.pnl-period-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    buildPnlChart(btn.dataset.period);
+  });
+});
 
 // Equity Curve
 var pnlData = {{ pnl_data|safe }};

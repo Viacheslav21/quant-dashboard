@@ -11,7 +11,8 @@ from routes.deps import log, to_json, compute_sharpe_ratio, compute_max_drawdown
 router = APIRouter(prefix="/api/mobile")
 
 
-@router.get("/overview")
+# ENGINE DISABLED ↓
+# @router.get("/overview")
 async def mobile_overview():
     """Main screen: bankroll, PnL, WR, open positions summary."""
     try:
@@ -50,7 +51,8 @@ async def mobile_overview():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.get("/positions")
+# ENGINE DISABLED ↓
+# @router.get("/positions")
 async def mobile_positions(status: str = "open", page: int = 1, limit: int = 50):
     """Open or closed positions list."""
     try:
@@ -92,7 +94,8 @@ async def mobile_positions(status: str = "open", page: int = 1, limit: int = 50)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.get("/analytics")
+# ENGINE DISABLED ↓
+# @router.get("/analytics")
 async def mobile_analytics():
     """Analytics: by theme, by side, daily PnL, calibration, DMA, CLV."""
     try:
@@ -122,7 +125,8 @@ async def mobile_analytics():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.get("/daily-pnl")
+# ENGINE DISABLED ↓
+# @router.get("/daily-pnl")
 async def mobile_daily_pnl(days: int = 30):
     """Daily PnL for chart."""
     try:
@@ -133,7 +137,8 @@ async def mobile_daily_pnl(days: int = 30):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.get("/equity-curve")
+# ENGINE DISABLED ↓
+# @router.get("/equity-curve")
 async def mobile_equity_curve():
     """Equity curve data for chart."""
     try:

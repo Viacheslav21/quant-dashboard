@@ -4,7 +4,7 @@ import os
 import json
 import asyncio
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import routes.deps as deps
 from routes.deps import (
@@ -16,7 +16,13 @@ from routes.deps import (
 router = APIRouter()
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=RedirectResponse)
+async def root_redirect():
+    return RedirectResponse(url="/micro")
+
+
+# ENGINE DISABLED ↓
+# @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, page: int = 1, date_from: str = None, date_to: str = None):
     try:
         per_page = 20
@@ -74,7 +80,8 @@ async def dashboard(request: Request, page: int = 1, date_from: str = None, date
         return HTMLResponse(f"<h1>Dashboard Error</h1><pre>{e}</pre>", status_code=500)
 
 
-@router.get("/analytics", response_class=HTMLResponse)
+# ENGINE DISABLED ↓
+# @router.get("/analytics", response_class=HTMLResponse)
 async def analytics(request: Request, date_from: str = None, date_to: str = None):
     try:
         (data, pnl_data, sig_outcomes, market_metrics, config_hist,

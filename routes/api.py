@@ -12,7 +12,8 @@ from utils.helpers import _json_serial
 router = APIRouter(prefix="/api")
 
 
-@router.get("")
+# ENGINE DISABLED ↓
+# @router.get("")
 async def api_stats():
     try:
         stats = await deps.db.get_stats()
@@ -24,7 +25,8 @@ async def api_stats():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/commands/close", response_class=JSONResponse)
+# ENGINE DISABLED ↓
+# @router.post("/commands/close", response_class=JSONResponse)
 async def cmd_close_position(request: Request):
     """Insert a close_position command into trader_commands table."""
     try:
@@ -46,7 +48,8 @@ async def cmd_close_position(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.get("/export/positions")
+# ENGINE DISABLED ↓
+# @router.get("/export/positions")
 async def export_positions(date_from: str = None, date_to: str = None):
     """CSV export of closed positions."""
     df = parse_date(date_from)
@@ -67,7 +70,8 @@ async def export_positions(date_from: str = None, date_to: str = None):
     )
 
 
-@router.get("/diagnostics")
+# ENGINE DISABLED ↓
+# @router.get("/diagnostics")
 async def api_diagnostics():
     """Deep WR diagnostics."""
     try:
@@ -78,7 +82,8 @@ async def api_diagnostics():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.get("/themes")
+# ENGINE DISABLED ↓
+# @router.get("/themes")
 async def api_themes():
     """Theme calibration data with blocked status."""
     try:
@@ -88,7 +93,8 @@ async def api_themes():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@router.post("/commands/theme-block", response_class=JSONResponse)
+# ENGINE DISABLED ↓
+# @router.post("/commands/theme-block", response_class=JSONResponse)
 async def cmd_theme_block(request: Request):
     """Block or unblock a theme for engine trading."""
     try:
