@@ -869,6 +869,42 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['tag']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
+                # Config params per version
+                config_versions = await conn.fetch("""
+                    SELECT tag, params FROM config_history
+                    WHERE tag LIKE 'micro-%' OR tag LIKE 'micro%'
+                    ORDER BY tag
+                """)
+                if config_versions:
+                    import json as _json
+                    _KEY_ORDER = [
+                        'ENTRY_MIN_PRICE', 'ENTRY_PRICE_1D', 'ENTRY_PRICE_2D', 'ENTRY_PRICE_3D',
+                        'MIN_QUALITY_SCORE', 'MIN_ROI',
+                        'MAX_STAKE', 'MIN_STAKE', 'MAX_STAKE_1D', 'MAX_STAKE_6H',
+                        'MAX_LOSS_PER_POS', 'RAPID_DROP_PCT',
+                        'MAX_OPEN', 'MAX_PER_THEME', 'MAX_PER_NEG_RISK',
+                        'MAX_DAYS_LEFT', 'MIN_VOLUME',
+                        'TAKE_PROFIT_PRICE', 'TAKE_PROFIT_MIN_DAYS',
+                        'SLIPPAGE', 'FEE_PCT',
+                    ]
+                    # Build perf lookup for diff markers
+                    _perf = {r['tag']: {'wr': round(r['wins']/r['total']*100,1) if r['total']>0 else 0, 'avg': float(r['avg_pnl'])} for r in tag_wr}
+                    lines.append(f"\nConfig Params by Version:")
+                    for cv in config_versions:
+                        tag = cv['tag']
+                        raw = cv['params']
+                        params = _json.loads(raw) if isinstance(raw, str) else (dict(raw) if raw else {})
+                        perf = _perf.get(tag, {})
+                        perf_str = f"  WR={perf.get('wr','?')}% avg={perf.get('avg',0):+.2f}$" if perf else ""
+                        lines.append(f"\n  [{tag}]{perf_str}")
+                        for k in _KEY_ORDER:
+                            if k in params:
+                                lines.append(f"    {k}: {params[k]}")
+                        # Any extra keys not in KEY_ORDER
+                        for k, v in params.items():
+                            if k not in _KEY_ORDER and k not in ('CONFIG_TAG', 'config_tag'):
+                                lines.append(f"    {k}: {v}")
+
                 # Theme auto-block status (computed from positions)
                 theme_stats = await conn.fetch("""
                     SELECT p.theme, COUNT(*) as trades,
