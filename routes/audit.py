@@ -839,7 +839,7 @@ async def micro_audit():
                 # Q60-80 breakdown — worst offenders
                 q6080_rows = await conn.fetch("""
                     SELECT p.side, p.result, p.theme,
-                        ROUND(p.entry_price * 100, 1) as entry_c,
+                        ROUND((p.entry_price * 100)::numeric, 1) as entry_c,
                         ROUND(p.pnl::numeric, 2) as pnl,
                         ROUND(p.stake_amt::numeric, 2) as stake,
                         p.close_reason, w.quality,
