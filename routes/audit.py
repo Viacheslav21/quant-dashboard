@@ -836,6 +836,33 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
+                # Q60-80 breakdown — worst offenders
+                q6080_rows = await conn.fetch("""
+                    SELECT p.side, p.result, p.theme,
+                        ROUND(p.entry_price * 100, 1) as entry_c,
+                        ROUND(p.pnl::numeric, 2) as pnl,
+                        ROUND(p.stake_amt::numeric, 2) as stake,
+                        p.close_reason, w.quality,
+                        p.question
+                    FROM micro_positions p
+                    JOIN micro_watchlist w ON p.market_id = w.market_id AND p.side = w.side
+                    WHERE p.status='closed' AND p.result IS NOT NULL
+                      AND w.quality >= 60 AND w.quality < 80
+                    ORDER BY p.pnl ASC
+                    LIMIT 30
+                """)
+                if q6080_rows:
+                    lines.append(f"\nQ60-80 positions (worst first):")
+                    lines.append(f"  {'R':<1} {'Q':>3} {'Entry':>5} {'PnL':>7} {'Stake':>6} {'Reason':<12} {'Theme':<10} Question")
+                    for r in q6080_rows:
+                        flag = 'W' if r['result'] == 'WIN' else 'L'
+                        lines.append(
+                            f"  {flag} {r['quality']:>3} {r['entry_c']:>4.1f}c "
+                            f"{r['pnl']:>+7.2f}$ ${r['stake']:>5.2f} "
+                            f"{r['close_reason']:<12} {(r['theme'] or '?'):<10} "
+                            f"{r['question'][:55]}"
+                        )
+
                 # WR by days_left at entry (join with watchlist)
                 days_wr = await conn.fetch("""
                     SELECT CASE
