@@ -138,16 +138,32 @@ async def api_config():
 
 @router.post("/config", response_class=JSONResponse)
 async def api_config_update(request: Request):
-    """Update a single config key."""
+    """Update a single config key or a batch of keys.
+    Single: {service, key, value}
+    Batch:  {updates: [{service, key, value}, ...]}
+    """
     try:
         body = await request.json()
-        service = body.get("service")
-        key = body.get("key")
-        value = body.get("value")
-        if not all([service, key, value is not None]):
-            return JSONResponse({"error": "service, key, value required"}, status_code=400)
-        result = await deps.db.update_config(service, key, str(value))
-        return JSONResponse(result)
+        if "updates" in body:
+            updates = body["updates"]
+            if not updates:
+                return JSONResponse({"error": "empty updates"}, status_code=400)
+            results = []
+            for u in updates:
+                service, key, value = u.get("service"), u.get("key"), u.get("value")
+                if not all([service, key, value is not None]):
+                    return JSONResponse({"error": f"service, key, value required in each update"}, status_code=400)
+                result = await deps.db.update_config(service, key, str(value))
+                results.append({"key": key, **result})
+            return JSONResponse({"ok": True, "updated": len(results), "results": results})
+        else:
+            service = body.get("service")
+            key = body.get("key")
+            value = body.get("value")
+            if not all([service, key, value is not None]):
+                return JSONResponse({"error": "service, key, value required"}, status_code=400)
+            result = await deps.db.update_config(service, key, str(value))
+            return JSONResponse(result)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:

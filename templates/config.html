@@ -14,14 +14,18 @@
   border:1px solid #374151;padding:6px 10px;border-radius:6px;
   font-size:13px;cursor:pointer;
 }
-.config-save{
-  padding:4px 14px;border:none;border-radius:6px;cursor:pointer;
-  font-size:12px;font-weight:500;
-  background:#374151;color:#D1D5DB;transition:all 0.15s;
+.save-all-btn{
+  padding:8px 24px;border:none;border-radius:8px;cursor:pointer;
+  font-size:14px;font-weight:600;
+  background:#2563EB;color:#fff;transition:all 0.15s;
 }
-.config-save:hover{background:#4B5563}
-.config-save.ok{background:#065F46;color:#10B981}
-.config-save.err{background:#991B1B;color:#F87171}
+.save-all-btn:hover{background:#1D4ED8}
+.save-all-btn:disabled{background:#374151;color:#6B7280;cursor:not-allowed}
+.save-all-btn.ok{background:#065F46;color:#10B981}
+.save-all-btn.err{background:#991B1B;color:#F87171}
+.changed-count{
+  font-size:13px;color:#F59E0B;margin-right:12px;display:none;
+}
 .section-header{
   padding:10px 20px;background:#111827;
   color:#9CA3AF;font-size:11px;font-weight:600;
@@ -47,6 +51,12 @@
 {% endblock %}
 
 {% block content %}
+
+<!-- Save All bar -->
+<div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 0 4px">
+  <span class="changed-count" id="changed-count"></span>
+  <button class="save-all-btn" id="save-all-btn" disabled>Save All</button>
+</div>
 
 <!-- Summary cards -->
 <div class="grid">
@@ -82,7 +92,6 @@
         <th style="width:100px">Range</th>
         <th>Description</th>
         <th style="width:70px">Ver</th>
-        <th style="width:70px"></th>
       </tr>
     </thead>
     <tbody>
@@ -114,9 +123,6 @@
         </td>
         <td class="desc-cell">{{ p.description }}</td>
         <td class="num"><span class="ver-badge">v{{ p.version }}</span></td>
-        <td>
-          <button class="config-save" data-service="{{ service }}" data-key="{{ p.key }}">Save</button>
-        </td>
       </tr>
     {% endfor %}
     </tbody>
@@ -163,59 +169,88 @@
 
 {% block scripts %}
 <script>
-document.querySelectorAll('.config-save').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    var service = this.dataset.service;
-    var key = this.dataset.key;
-    var el = document.getElementById('cfg-' + service + '-' + key);
-    var value = el.value;
-    var orig = el.dataset.orig;
+var saveBtn = document.getElementById('save-all-btn');
+var changedCountEl = document.getElementById('changed-count');
 
-    if(value === orig){
-      btn.textContent = 'No change';
-      btn.className = 'config-save';
-      setTimeout(function(){ btn.textContent = 'Save'; }, 1500);
-      return;
+function getChangedFields() {
+  var changed = [];
+  document.querySelectorAll('.config-input, .config-select').forEach(function(el) {
+    if (el.value !== el.dataset.orig) {
+      changed.push({service: el.dataset.service, key: el.dataset.key, value: el.value});
     }
-
-    btn.textContent = '...';
-    btn.disabled = true;
-    btn.className = 'config-save';
-
-    fetch('/api/config', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({service: service, key: key, value: value})
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if(data.ok){
-        btn.textContent = 'Saved';
-        btn.className = 'config-save ok';
-        el.dataset.orig = value;
-        setTimeout(function(){ location.reload(); }, 1000);
-      } else {
-        btn.textContent = data.error || 'Error';
-        btn.className = 'config-save err';
-        setTimeout(function(){ btn.textContent = 'Save'; btn.className = 'config-save'; btn.disabled = false; }, 3000);
-      }
-    })
-    .catch(function(){
-      btn.textContent = 'Error';
-      btn.className = 'config-save err';
-      setTimeout(function(){ btn.textContent = 'Save'; btn.className = 'config-save'; btn.disabled = false; }, 3000);
-    });
   });
-});
+  return changed;
+}
 
-// Highlight changed values
-document.querySelectorAll('.config-input, .config-select').forEach(function(el){
-  el.addEventListener('change', function(){
-    if(this.value !== this.dataset.orig){
+function updateSaveBtn() {
+  var changed = getChangedFields();
+  if (changed.length > 0) {
+    saveBtn.disabled = false;
+    changedCountEl.style.display = 'inline';
+    changedCountEl.textContent = changed.length + ' change' + (changed.length > 1 ? 's' : '');
+  } else {
+    saveBtn.disabled = true;
+    changedCountEl.style.display = 'none';
+  }
+}
+
+document.querySelectorAll('.config-input, .config-select').forEach(function(el) {
+  el.addEventListener('input', function() {
+    if (this.value !== this.dataset.orig) {
       this.style.borderColor = '#F59E0B';
     } else {
       this.style.borderColor = '#374151';
     }
+    updateSaveBtn();
+  });
+  el.addEventListener('change', function() {
+    if (this.value !== this.dataset.orig) {
+      this.style.borderColor = '#F59E0B';
+    } else {
+      this.style.borderColor = '#374151';
+    }
+    updateSaveBtn();
+  });
+});
+
+saveBtn.addEventListener('click', function() {
+  var changed = getChangedFields();
+  if (changed.length === 0) return;
+
+  saveBtn.textContent = 'Saving...';
+  saveBtn.disabled = true;
+  saveBtn.className = 'save-all-btn';
+
+  fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({updates: changed})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      saveBtn.textContent = 'Saved ' + data.updated + ' param' + (data.updated > 1 ? 's' : '');
+      saveBtn.className = 'save-all-btn ok';
+      changedCountEl.style.display = 'none';
+      setTimeout(function() { location.reload(); }, 1000);
+    } else {
+      saveBtn.textContent = data.error || 'Error';
+      saveBtn.className = 'save-all-btn err';
+      setTimeout(function() {
+        saveBtn.textContent = 'Save All';
+        saveBtn.className = 'save-all-btn';
+        saveBtn.disabled = false;
+      }, 3000);
+    }
+  })
+  .catch(function() {
+    saveBtn.textContent = 'Error';
+    saveBtn.className = 'save-all-btn err';
+    setTimeout(function() {
+      saveBtn.textContent = 'Save All';
+      saveBtn.className = 'save-all-btn';
+      saveBtn.disabled = false;
+    }, 3000);
   });
 });
 </script>
