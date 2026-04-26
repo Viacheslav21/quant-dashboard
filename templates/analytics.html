@@ -159,7 +159,11 @@
 <div class="row">
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Daily P&amp;L</h2></div>
-    <div style="height:280px"><canvas id="dailyPnlChart"></canvas></div>
+    <div id="analyticsPnlWrap" style="overflow-x:auto;overflow-y:hidden">
+      <div id="analyticsPnlInner" style="height:280px;min-width:100%">
+        <canvas id="dailyPnlChart"></canvas>
+      </div>
+    </div>
   </div>
   <div class="panel" style="padding:20px">
     <div class="panel-header" style="padding:0 0 12px 0"><h2>Calibration</h2></div>
@@ -369,15 +373,20 @@ if(pnlData.length>0){
 
 // Daily PnL bars
 if(dailyData.length>0){
-  const sorted=[...dailyData].reverse();
+  // dailyData comes ordered ASC from DB — keep chronological order
+  const wrap=document.getElementById('analyticsPnlWrap');
+  const inner=document.getElementById('analyticsPnlInner');
+  const minW=dailyData.length*28+80;
+  inner.style.width=Math.max(wrap.clientWidth,minW)+'px';
   new Chart(document.getElementById('dailyPnlChart'),{type:'bar',
-    data:{labels:sorted.map(d=>d.day),
-      datasets:[{label:'Daily P&L',data:sorted.map(d=>parseFloat(d.pnl)),
-        backgroundColor:sorted.map(d=>parseFloat(d.pnl)>=0?'rgba(59,130,246,0.7)':'rgba(239,68,68,0.7)'),borderRadius:4}]},
+    data:{labels:dailyData.map(d=>d.day),
+      datasets:[{label:'Daily P&L',data:dailyData.map(d=>parseFloat(d.pnl)),
+        backgroundColor:dailyData.map(d=>parseFloat(d.pnl)>=0?'rgba(59,130,246,0.7)':'rgba(239,68,68,0.7)'),borderRadius:4}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`$${c.parsed.y>=0?'+':''}${c.parsed.y.toFixed(2)}`}}},
-      scales:{x:{ticks:tickOpts,grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>'$'+v},grid:gridOpts}}}
+      scales:{x:{ticks:{...tickOpts,maxRotation:45,minRotation:0},grid:gridOpts},y:{ticks:{...tickOpts,callback:v=>'$'+v},grid:gridOpts}}}
   });
+  wrap.scrollLeft=wrap.scrollWidth;
 }
 
 // Calibration

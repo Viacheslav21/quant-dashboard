@@ -54,7 +54,11 @@
       <button class="pnl-period-btn" data-period="monthly">Monthly</button>
     </div>
   </div>
-  <div style="height:220px"><canvas id="dailyChart"></canvas></div>
+  <div id="pnlChartWrap" style="overflow-x:auto;overflow-y:hidden">
+    <div id="pnlChartInner" style="height:260px;min-width:100%">
+      <canvas id="dailyChart"></canvas>
+    </div>
+  </div>
 </div>
 
 <!-- Open positions -->
@@ -259,6 +263,8 @@ function fmtLabel(key,period){
 }
 
 const pnlTitles={daily:'Daily P&L',weekly:'Weekly P&L',monthly:'Monthly P&L'};
+// Min px per bar per period — ensures all bars are legible
+const BAR_PX={daily:28,weekly:52,monthly:70};
 let pnlChart=null;
 
 function buildPnlChart(period){
@@ -266,6 +272,13 @@ function buildPnlChart(period){
   if(pnlChart) pnlChart.destroy();
   document.getElementById('pnlChartTitle').textContent=pnlTitles[period];
   if(!data.length) return;
+
+  // Expand canvas width so every bar has enough room; scroll if needed
+  const wrap=document.getElementById('pnlChartWrap');
+  const inner=document.getElementById('pnlChartInner');
+  const minW=data.length*BAR_PX[period]+80;
+  inner.style.width=Math.max(wrap.clientWidth,minW)+'px';
+
   pnlChart=new Chart(document.getElementById('dailyChart'),{
     type:'bar',
     data:{
@@ -287,11 +300,14 @@ function buildPnlChart(period){
         }}}
       },
       scales:{
-        x:{ticks:{color:'#6B7280'},grid:{display:false}},
+        x:{ticks:{color:'#6B7280',maxRotation:45,minRotation:0},grid:{display:false}},
         y:{ticks:{color:'#6B7280',callback:v=>'$'+v.toFixed(2)},grid:{color:'#1F2937'}}
       }
     }
   });
+
+  // Auto-scroll to most recent (right edge) on first render
+  wrap.scrollLeft=wrap.scrollWidth;
 }
 
 buildPnlChart('daily');

@@ -269,7 +269,7 @@ class Database:
                         COUNT(*) as trades,
                         SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins
                     FROM positions WHERE status='closed' AND closed_at IS NOT NULL
-                    GROUP BY day ORDER BY day DESC LIMIT 14
+                    GROUP BY day ORDER BY day DESC LIMIT 90
                 ) sub ORDER BY day ASC
             """)
             ev_accuracy = await conn.fetchrow("""
@@ -693,7 +693,7 @@ class Database:
                         COUNT(*) as trades,
                         SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins
                     FROM micro_positions WHERE status='closed' AND closed_at IS NOT NULL
-                    GROUP BY day ORDER BY day DESC LIMIT 14
+                    GROUP BY day ORDER BY day DESC LIMIT 90
                 ) sub ORDER BY day ASC
             """)
             by_config = await conn.fetch("""
