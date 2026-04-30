@@ -46,8 +46,19 @@
 
 <!-- P&L Chart (Daily / Weekly / Monthly) -->
 <div class="panel" style="padding:20px;margin-bottom:20px">
-  <div class="panel-header" style="padding:0 0 12px 0;display:flex;justify-content:space-between;align-items:center">
-    <h2 id="pnlChartTitle">Daily P&amp;L</h2>
+  <div class="panel-header" style="padding:0 0 12px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+      <h2 id="pnlChartTitle" style="margin:0">Daily P&amp;L</h2>
+      <div title="Avg/day: mean across {{ pnl_n_days }} day(s) with trades. 7d/30d: actual sums of last 7/30 days. YTD: actual sum since Jan 1." style="font-size:12px;color:#9CA3AF;font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Monaco,Consolas,monospace">
+        <span>Avg/day: <span style="color:{{ pc(pnl_avg_day) }}">{{ "%+.2f"|format(pnl_avg_day) }}$</span></span>
+        <span style="color:#4B5563;margin:0 6px">|</span>
+        <span>7d: <span style="color:{{ pc(pnl_7d) }}">{{ "%+.2f"|format(pnl_7d) }}$</span></span>
+        <span style="color:#4B5563;margin:0 6px">|</span>
+        <span>30d: <span style="color:{{ pc(pnl_30d) }}">{{ "%+.2f"|format(pnl_30d) }}$</span></span>
+        <span style="color:#4B5563;margin:0 6px">|</span>
+        <span>YTD: <span style="color:{{ pc(pnl_ytd) }}">{{ "%+.0f"|format(pnl_ytd) }}$</span></span>
+      </div>
+    </div>
     <div style="display:flex;gap:4px">
       <button class="pnl-period-btn active" data-period="daily">Daily</button>
       <button class="pnl-period-btn" data-period="weekly">Weekly</button>

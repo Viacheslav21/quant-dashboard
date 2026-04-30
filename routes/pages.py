@@ -3,6 +3,7 @@
 import os
 import json
 import asyncio
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -14,6 +15,47 @@ from routes.deps import (
 )
 
 router = APIRouter()
+
+
+def _compute_pnl_pace(daily_pnl_rows) -> dict:
+    """Aggregate {day, pnl} rows into pace metrics shown next to the Daily P&L chart.
+    avg/day uses available days; 7d/30d are rolling-window sums; YTD is sum since Jan 1.
+    Handles `day` as date / datetime / ISO string."""
+    today = date.today()
+    week_cutoff = today - timedelta(days=7)
+    month_cutoff = today - timedelta(days=30)
+    year_start = date(today.year, 1, 1)
+
+    pnls: list[float] = []
+    pnl_7d = pnl_30d = pnl_ytd = 0.0
+    for r in (daily_pnl_rows or []):
+        p = float(r.get("pnl", 0) or 0)
+        pnls.append(p)
+        d = r.get("day")
+        if isinstance(d, datetime):
+            d = d.date()
+        elif isinstance(d, str):
+            try:
+                d = date.fromisoformat(d[:10])
+            except Exception:
+                continue
+        elif not isinstance(d, date):
+            continue
+        if d >= week_cutoff:
+            pnl_7d += p
+        if d >= month_cutoff:
+            pnl_30d += p
+        if d >= year_start:
+            pnl_ytd += p
+
+    n_days = len(pnls)
+    return {
+        "n_days": n_days,
+        "avg_day": (sum(pnls) / n_days) if n_days > 0 else 0.0,
+        "pnl_7d": pnl_7d,
+        "pnl_30d": pnl_30d,
+        "pnl_ytd": pnl_ytd,
+    }
 
 
 @router.get("/", response_class=RedirectResponse)
@@ -142,6 +184,8 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             ) if params else "—"
             config_rows.append({**r, "param_str": param_str})
 
+        pace = _compute_pnl_pace(data.get("daily_pnl"))
+
         valid_sigs = [s for s in sig_outcomes if s.get("price_move") is not None]
         exec_sigs = [s for s in valid_sigs if s["executed"]]
         rej_sigs = [s for s in valid_sigs if not s["executed"]]
@@ -167,6 +211,11 @@ async def analytics(request: Request, date_from: str = None, date_to: str = None
             rej_right=sum(1 for s in rej_sigs if s.get("price_move") and s["price_move"] > 0),
             rej_saved=rej_saved, clv=clv, dma_weights=dma_weights, blocked_themes=blocked_themes,
             date_from=date_from, date_to=date_to,
+            pnl_n_days=pace["n_days"],
+            pnl_avg_day=pace["avg_day"],
+            pnl_7d=pace["pnl_7d"],
+            pnl_30d=pace["pnl_30d"],
+            pnl_ytd=pace["pnl_ytd"],
             has_api_secret=True,  # simplified — auth checked by middleware
             api_secret_required=bool(os.getenv("API_SECRET", "")),
         ))
@@ -212,6 +261,8 @@ async def micro(request: Request, page: int = 1):
         best_trade = max(all_closed, key=lambda t: float(t.get("pnl") or 0)) if all_closed else None
         worst_trade = min(all_closed, key=lambda t: float(t.get("pnl") or 0)) if all_closed else None
 
+        pace = _compute_pnl_pace(data.get("daily_pnl"))
+
         # Theme calibration computed from positions + blocked flag
         theme_cal = []
         try:
@@ -254,6 +305,11 @@ async def micro(request: Request, page: int = 1):
             daily_data=to_json(data["daily_pnl"]),
             best_trade=best_trade, worst_trade=worst_trade,
             theme_cal=theme_cal,
+            pnl_n_days=pace["n_days"],
+            pnl_avg_day=pace["avg_day"],
+            pnl_7d=pace["pnl_7d"],
+            pnl_30d=pace["pnl_30d"],
+            pnl_ytd=pace["pnl_ytd"],
         ))
     except Exception as e:
         log.error(f"[DASHBOARD] Micro error: {e}", exc_info=True)
