@@ -907,6 +907,7 @@ async def micro_audit():
                         'ENTRY_MIN_PRICE', 'ENTRY_PRICE_1D', 'ENTRY_PRICE_2D', 'ENTRY_PRICE_3D',
                         'WATCHLIST_MIN_PRICE', 'MIN_QUALITY_SCORE', 'MIN_ROI',
                         'MAX_STAKE', 'MIN_STAKE', 'MAX_STAKE_1D', 'MAX_STAKE_6H',
+                        'MAX_STAKE_Q80_6H', 'PCT_STAKE_Q80',
                         'MAX_LOSS_PER_POS', 'MAX_LOSS_BYPASS_BLOCKS', 'RAPID_DROP_PCT',
                         'TAKE_PROFIT_PRICE', 'TAKE_PROFIT_MIN_DAYS',
                         'MAX_OPEN', 'MAX_PER_THEME', 'MAX_PER_NEG_RISK',
