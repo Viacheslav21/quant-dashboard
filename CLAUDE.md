@@ -17,7 +17,7 @@ routes/
   deps.py             — Shared dependencies: db, config, templates, helpers
   pages.py            — HTML pages: /, /analytics, /micro, /model, /config (~310 lines)
   api.py              — Core API: /api, commands, export, diagnostics, config (~160 lines)
-  mobile.py           — Mobile API: /api/mobile/* (engine) + /api/mobile/micro/* (~230 lines)
+  mobile.py           — Mobile API: /api/mobile/micro/* (~80 lines)
   audit.py            — System + micro audit reports (~990 lines)
   ml_proxy.py         — ML service proxy: /api/ml/* (~50 lines)
 utils/
@@ -67,7 +67,7 @@ Procfile
 - Daily P&L bar chart
 
 ### Config (`/config`)
-- Live config editor for all engine and micro parameters (43 total: 22 engine, 21 micro)
+- Live config editor for all engine and micro parameters (44 total: 22 engine, 22 micro)
 - Parameters grouped by section: signals, risk, sizing, capacity, timing, filters, claude, general, sim
 - Micro BANKROLL editable (bankroll read from config_live, not hardcoded)
 - Per-parameter validation (type: float/int/bool/str, min/max bounds)
@@ -95,7 +95,6 @@ Procfile
 - `GET /api/config` — All live config parameters with current values, sections, types, min/max, versions
 - `POST /api/config` — Update config parameters (validates type + min/max, increments version, writes history, sends NOTIFY config_reload)
 - `GET /api/config/history` — Change history for config_live (key, old/new values, timestamps)
-- **Mobile API (Engine)**: `/api/mobile/overview`, `/api/mobile/positions`, `/api/mobile/analytics`, `/api/mobile/daily-pnl`, `/api/mobile/equity-curve`
 - **Mobile API (Micro)**: `/api/mobile/micro/overview`, `/api/mobile/micro/positions`, `/api/mobile/micro/daily-pnl`
 
 ### Auth

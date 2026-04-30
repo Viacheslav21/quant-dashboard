@@ -907,7 +907,7 @@ async def micro_audit():
                         'ENTRY_MIN_PRICE', 'ENTRY_PRICE_1D', 'ENTRY_PRICE_2D', 'ENTRY_PRICE_3D',
                         'WATCHLIST_MIN_PRICE', 'MIN_QUALITY_SCORE', 'MIN_ROI',
                         'MAX_STAKE', 'MIN_STAKE', 'MAX_STAKE_1D', 'MAX_STAKE_6H',
-                        'MAX_LOSS_PER_POS', 'RAPID_DROP_PCT',
+                        'MAX_LOSS_PER_POS', 'MAX_LOSS_BYPASS_BLOCKS', 'RAPID_DROP_PCT',
                         'TAKE_PROFIT_PRICE', 'TAKE_PROFIT_MIN_DAYS',
                         'MAX_OPEN', 'MAX_PER_THEME', 'MAX_PER_NEG_RISK',
                         'MAX_DAYS_LEFT', 'MIN_VOLUME',
@@ -1056,6 +1056,40 @@ async def micro_audit():
             lines.append(f"  Positions: {len(open_pos)} | Staked: ${total_stake:.2f}")
             lines.append(f"  Worst case (all hit max_loss): -${worst_case:.2f}")
             lines.append(f"  Capital utilization: {total_stake/bankroll_plus_stake*100:.0f}%")
+
+        # MAX_LOSS REST-block diagnostics — counts how often REST verify blocked a max_loss close.
+        # Logged from monitor.py via record_price_tick(source='max_loss_blocked'). High counts
+        # indicate REST (CLOB book / Gamma midpoint) is lagging vs WS, which can delay cap enforcement.
+        try:
+            async with db.pool.acquire() as conn:
+                blocked_rows = await conn.fetch("""
+                    SELECT
+                        COUNT(*) FILTER (WHERE ts > NOW() - INTERVAL '24 hours') AS d1,
+                        COUNT(*) FILTER (WHERE ts > NOW() - INTERVAL '7 days')   AS d7,
+                        COUNT(*) AS total,
+                        COUNT(DISTINCT market_id) FILTER (WHERE ts > NOW() - INTERVAL '7 days') AS uniq_markets
+                    FROM micro_price_history
+                    WHERE source = 'max_loss_blocked'
+                """)
+                if blocked_rows:
+                    b = blocked_rows[0]
+                    if int(b["total"] or 0) > 0:
+                        lines.append(f"\nMAX_LOSS REST Blocks (REST lag diagnostic):")
+                        lines.append(f"  24h: {int(b['d1'] or 0)} | 7d: {int(b['d7'] or 0)} (across {int(b['uniq_markets'] or 0)} markets) | All-time: {int(b['total'] or 0)}")
+                        # Top recent offenders — markets where REST blocked most
+                        top = await conn.fetch("""
+                            SELECT market_id, side, COUNT(*) AS n
+                            FROM micro_price_history
+                            WHERE source = 'max_loss_blocked' AND ts > NOW() - INTERVAL '7 days'
+                            GROUP BY market_id, side
+                            ORDER BY n DESC
+                            LIMIT 5
+                        """)
+                        if top:
+                            for row in top:
+                                lines.append(f"    {row['market_id'][:12]} {row['side']}: {int(row['n'])} blocks")
+        except Exception as _e:
+            pass  # diagnostic is best-effort, never break the report
 
         # ━━━ 6. ALL CLOSED POSITIONS ━━━
         lines.append("\n" + "━" * 40)

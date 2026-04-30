@@ -781,6 +781,23 @@ class Database:
             """, theme, blocked)
         log.info(f"[DB] Micro theme '{theme}' {'BLOCKED' if blocked else 'UNBLOCKED'}")
 
+    async def get_micro_themes(self) -> list:
+        """Get all micro themes with trade stats and blocked status."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT p.theme,
+                    COUNT(*) as trades,
+                    SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
+                    ROUND(SUM(p.pnl)::numeric, 2) as total_pnl,
+                    COALESCE(t.blocked, FALSE) as blocked
+                FROM micro_positions p
+                LEFT JOIN micro_theme_stats t ON p.theme = t.theme
+                WHERE p.status = 'closed' AND p.theme IS NOT NULL
+                GROUP BY p.theme, t.blocked
+                ORDER BY COUNT(*) DESC
+            """)
+            return [dict(r) for r in rows]
+
     # ── Live Config ──
 
     async def get_all_config(self) -> list:
