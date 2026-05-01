@@ -67,7 +67,7 @@ Procfile
 - Daily P&L bar chart
 
 ### Config (`/config`)
-- Live config editor for all engine and micro parameters (46 total: 22 engine, 24 micro)
+- Live config editor for all engine and micro parameters (47 total: 22 engine, 25 micro)
 - Parameters grouped by section: signals, risk, sizing, capacity, timing, filters, claude, general, sim
 - Micro BANKROLL editable (bankroll read from config_live, not hardcoded)
 - Per-parameter validation (type: float/int/bool/str, min/max bounds)
