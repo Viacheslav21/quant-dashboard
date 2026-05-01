@@ -6,10 +6,7 @@ The `init()` function is called once from app.py after startup."""
 import os
 import logging
 from utils.helpers import pc, wr_color, to_json
-from utils.metrics import (
-    compute_sharpe_ratio, compute_max_drawdown,
-    compute_streaks, compute_equity_curve, compute_pnl_distribution,
-)
+from utils.metrics import compute_sharpe_ratio, compute_max_drawdown, compute_streaks
 
 log = logging.getLogger("dashboard")
 

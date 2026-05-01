@@ -113,10 +113,7 @@ th.sortable.desc::after{content:'\2193';opacity:0.8}
 
 <!-- Navigation tabs -->
 <div class="nav-tabs">
-  <!-- ENGINE DISABLED: <a href="/" class="tab{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a> -->
   <a href="/micro" class="tab{% if active_page == 'micro' %} active{% endif %}">Micro</a>
-  <!-- ENGINE DISABLED: <a href="/analytics" class="tab{% if active_page == 'analytics' %} active{% endif %}">Analytics</a> -->
-  <a href="/model" class="tab{% if active_page == 'model' %} active{% endif %}">Model</a>
   <a href="/config" class="tab{% if active_page == 'config' %} active{% endif %}">Config</a>
   <div class="spacer"></div>
   {% if auth_enabled %}
@@ -127,7 +124,7 @@ th.sortable.desc::after{content:'\2193';opacity:0.8}
 {% block content %}{% endblock %}
 
 <div class="footer">
-  <a href="/" style="color:#6B7280;text-decoration:none">Quant Engine</a> &middot; {% block footer_mode %}{% endblock %}
+  <a href="/micro" style="color:#6B7280;text-decoration:none">Quant Micro</a> &middot; {% block footer_mode %}{% endblock %}
 </div>
 
 </div>

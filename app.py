@@ -27,12 +27,7 @@ log = logging.getLogger("dashboard")
 # ── Config ──
 
 _config = {
-    "BANKROLL":         float(os.getenv("BANKROLL", "1000")),
-    "MIN_EV":           float(os.getenv("MIN_EV", "0.12")),
-    "MIN_KL":           float(os.getenv("MIN_KL", "0.08")),
-    "MAX_KELLY_FRAC":   float(os.getenv("MAX_KELLY_FRAC", "0.20")),
-    "TAKE_PROFIT_PCT":  float(os.getenv("TAKE_PROFIT_PCT", "0.15")),
-    "STOP_LOSS_PCT":    float(os.getenv("STOP_LOSS_PCT", "0.25")),
+    "BANKROLL": float(os.getenv("BANKROLL", "1000")),  # micro starting bankroll
 }
 
 DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
@@ -165,13 +160,11 @@ from routes.pages import router as pages_router
 from routes.api import router as api_router
 from routes.mobile import router as mobile_router
 from routes.audit import router as audit_router
-from routes.ml_proxy import router as ml_proxy_router
 
 app.include_router(pages_router)
 app.include_router(api_router)
 app.include_router(mobile_router)
 app.include_router(audit_router)
-app.include_router(ml_proxy_router)
 
 
 if __name__ == "__main__":
