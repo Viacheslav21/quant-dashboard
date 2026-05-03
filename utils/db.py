@@ -184,6 +184,7 @@ class Database:
     async def get_micro_recent_config_changes(self, days: int = 7) -> list:
         """Recent config_live edits — surfaces tuning history alongside performance
         so the audit reader can correlate 'what changed' with 'what happened'."""
+        from datetime import timedelta
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT key, old_value, new_value, version, changed_at
@@ -191,7 +192,7 @@ class Database:
                 WHERE service = 'micro' AND changed_at > NOW() - $1::interval
                 ORDER BY changed_at DESC
                 LIMIT 30
-            """, f"{days} days")
+            """, timedelta(days=days))
             return _clean_list(rows)
 
     async def get_micro_pnl_by_hour(self) -> list:
