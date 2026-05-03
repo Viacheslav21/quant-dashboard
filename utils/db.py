@@ -47,7 +47,11 @@ class Database:
     # ── Micro positions / stats ──
 
     async def get_micro_stats(self) -> dict:
-        """Compute micro stats from positions. Reads BANKROLL from config_live."""
+        """Compute micro stats from positions. Reads BANKROLL from config_live.
+        peak_equity is the historical max of (starting_bankroll + cumulative pnl)
+        across the closed-position timeline — derived in SQL so it's actually
+        meaningful (the in-memory copy in micro/main.py is process-local and resets
+        on every deploy, so we can't read it from here)."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT
@@ -64,6 +68,13 @@ class Database:
                 "SELECT value FROM config_live WHERE service='micro' AND key='BANKROLL'"
             )
             starting_bankroll = float(br_row) if br_row else 1000.0
+            peak = await conn.fetchval("""
+                SELECT COALESCE(MAX(cum), 0) FROM (
+                    SELECT SUM(pnl) OVER (ORDER BY closed_at) AS cum
+                    FROM micro_positions
+                    WHERE status='closed' AND closed_at IS NOT NULL
+                ) t
+            """)
         total_pnl = float(row["total_pnl"]) if row else 0
         return {
             "bankroll": round(starting_bankroll + total_pnl - float(open_staked or 0), 2),
@@ -71,7 +82,7 @@ class Database:
             "wins": int(row["wins"] or 0) if row else 0,
             "losses": int(row["losses"] or 0) if row else 0,
             "total_trades": int(row["total_trades"] or 0) if row else 0,
-            "peak_equity": 0.0,
+            "peak_equity": round(starting_bankroll + float(peak or 0), 2),
         }
 
     async def get_micro_open_positions(self) -> list:
@@ -79,9 +90,9 @@ class Database:
             rows = await conn.fetch("""
                 SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
                        mp.current_price, mp.unrealized_pnl, mp.stake_amt,
-                       mp.end_date, mp.opened_at, m.url
+                       mp.end_date, mp.opened_at, mp.slug,
+                       'https://polymarket.com/event/' || COALESCE(mp.slug, mp.market_id) AS url
                 FROM micro_positions mp
-                LEFT JOIN markets m ON m.id = mp.market_id
                 WHERE mp.status='open' ORDER BY mp.opened_at DESC
             """)
             return _clean_list(rows)
@@ -91,9 +102,9 @@ class Database:
             rows = await conn.fetch("""
                 SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
                        mp.current_price, mp.pnl, mp.result, mp.close_reason, mp.stake_amt,
-                       mp.opened_at, mp.closed_at, m.url
+                       mp.opened_at, mp.closed_at, mp.slug, mp.quality, mp.entry_days_left,
+                       'https://polymarket.com/event/' || COALESCE(mp.slug, mp.market_id) AS url
                 FROM micro_positions mp
-                LEFT JOIN markets m ON m.id = mp.market_id
                 WHERE mp.status='closed' ORDER BY mp.closed_at DESC LIMIT $1 OFFSET $2
             """, limit, offset)
             return _clean_list(rows)
@@ -168,6 +179,175 @@ class Database:
             "by_config": _clean_list(by_config),
             "avg_lifetime_hours": float(avg_lifetime["avg_hours"] or 0) if avg_lifetime else 0.0,
             "daily_pnl": _clean_list(daily_pnl),
+        }
+
+    async def get_micro_recent_config_changes(self, days: int = 7) -> list:
+        """Recent config_live edits — surfaces tuning history alongside performance
+        so the audit reader can correlate 'what changed' with 'what happened'."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT key, old_value, new_value, version, changed_at
+                FROM config_live_history
+                WHERE service = 'micro' AND changed_at > NOW() - $1::interval
+                ORDER BY changed_at DESC
+                LIMIT 30
+            """, f"{days} days")
+            return _clean_list(rows)
+
+    async def get_micro_pnl_by_hour(self) -> list:
+        """PnL bucketed by hour-of-day (UTC). Surfaces time-of-day patterns —
+        e.g. esports markets resolving badly during Asia/Europe trading hours."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT EXTRACT(HOUR FROM closed_at)::int AS hour,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) AS wins,
+                    ROUND(SUM(pnl)::numeric, 2) AS total_pnl
+                FROM micro_positions
+                WHERE status='closed' AND result IS NOT NULL AND closed_at IS NOT NULL
+                GROUP BY hour ORDER BY hour
+            """)
+            return _clean_list(rows)
+
+    async def get_micro_theme_adj_wr(self) -> list:
+        """Bayesian-shrunk WR per theme. Same shrinkage (k=20) as quant-micro's
+        recalibrate_theme — lets the audit show which themes are close to the
+        auto-block threshold (40%)."""
+        async with self.pool.acquire() as conn:
+            g = await conn.fetchrow("""
+                SELECT COUNT(*) AS n,
+                       SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) AS wins
+                FROM micro_positions WHERE status='closed' AND result IS NOT NULL
+            """)
+            global_wr = (float(g["wins"] or 0) / max(int(g["n"] or 0), 1)) if g else 0.5
+            rows = await conn.fetch("""
+                SELECT theme, COUNT(*) AS n,
+                       SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) AS wins
+                FROM micro_positions
+                WHERE status='closed' AND result IS NOT NULL AND theme IS NOT NULL
+                GROUP BY theme ORDER BY COUNT(*) DESC
+            """)
+            k = 20
+            out = []
+            for r in rows:
+                n = int(r["n"] or 0)
+                wins = int(r["wins"] or 0)
+                raw = wins / n if n else 0
+                adj = (n * raw + k * global_wr) / (n + k) if n else global_wr
+                out.append({"theme": r["theme"], "n": n, "wins": wins,
+                            "raw_wr": round(raw, 3), "adj_wr": round(adj, 3)})
+            return out
+
+    async def get_micro_worst_per_reason(self, per_reason: int = 3) -> list:
+        """Top-N worst PnL trades per close_reason — fastest way to spot
+        recurring failure patterns (e.g. crypto rapid_drops, sports max_loss)."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT close_reason, side, theme, question,
+                       ROUND(pnl::numeric, 2) AS pnl,
+                       ROUND(stake_amt::numeric, 2) AS stake,
+                       ROUND((entry_price * 100)::numeric, 1) AS entry_c,
+                       ROUND((current_price * 100)::numeric, 1) AS exit_c,
+                       closed_at
+                FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY close_reason ORDER BY pnl ASC) AS rn
+                    FROM micro_positions
+                    WHERE status='closed' AND result IS NOT NULL
+                ) t
+                WHERE rn <= $1
+                ORDER BY close_reason, pnl ASC
+            """, per_reason)
+            return _clean_list(rows)
+
+    async def get_micro_rapid_drop_blocks(self) -> dict:
+        """Mirror of the MAX_LOSS REST-block diagnostic but for rapid_drop. We
+        don't currently log these to micro_price_history (only max_loss_blocked
+        gets a tick), so this returns counts of actual rapid_drop closes vs. how
+        many were preceded by REST blocks recorded in monitor.py logs.
+        For now we approximate using the rapid_drop close events themselves."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT
+                    COUNT(*) FILTER (WHERE closed_at > NOW() - INTERVAL '24 hours') AS d1,
+                    COUNT(*) FILTER (WHERE closed_at > NOW() - INTERVAL '7 days')   AS d7,
+                    COUNT(*) AS total
+                FROM micro_positions
+                WHERE close_reason = 'rapid_drop' AND status='closed'
+            """)
+        return _clean(row) if row else {}
+
+    async def get_micro_audit_aggregates(self) -> dict:
+        """Aggregates for the audit report computed in SQL — replaces the Python
+        loops over a 9999-row closed_all snapshot which silently truncated stats
+        once the table grew past the limit.
+        Single roundtrip; everything is bucket counts/sums over `status='closed'`.
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                WITH closed AS (
+                    SELECT pnl, result, close_reason, opened_at, closed_at,
+                           stake_amt, theme,
+                           EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600 AS hold_h
+                    FROM micro_positions
+                    WHERE status = 'closed' AND result IS NOT NULL
+                )
+                SELECT
+                    -- Win/loss sizes
+                    COALESCE(AVG(pnl) FILTER (WHERE result='WIN'),  0) AS avg_win,
+                    COALESCE(AVG(pnl) FILTER (WHERE result='LOSS'), 0) AS avg_loss,
+                    COALESCE(MAX(pnl), 0) AS best_pnl,
+                    COALESCE(MIN(pnl), 0) AS worst_pnl,
+                    -- Recent windows
+                    COALESCE(SUM(pnl) FILTER (WHERE closed_at > NOW() - INTERVAL '7 days'),  0) AS pnl_7d,
+                    COUNT(*)              FILTER (WHERE closed_at > NOW() - INTERVAL '7 days')     AS trades_7d,
+                    COUNT(*) FILTER (WHERE closed_at > NOW() - INTERVAL '7 days' AND result='WIN') AS wins_7d,
+                    COALESCE(SUM(pnl) FILTER (WHERE closed_at > NOW() - INTERVAL '30 days'), 0) AS pnl_30d,
+                    COUNT(*)              FILTER (WHERE closed_at > NOW() - INTERVAL '30 days')    AS trades_30d,
+                    -- Hold time split
+                    COALESCE(AVG(hold_h) FILTER (WHERE result='WIN'),  0) AS hold_h_win,
+                    COALESCE(AVG(hold_h) FILTER (WHERE result='LOSS'), 0) AS hold_h_loss,
+                    -- Close reason buckets
+                    COUNT(*) FILTER (WHERE close_reason = 'resolved')      AS n_resolved,
+                    COUNT(*) FILTER (WHERE close_reason = 'resolved_loss') AS n_resolved_loss,
+                    COUNT(*) FILTER (WHERE close_reason = 'take_profit')   AS n_take_profit,
+                    COUNT(*) FILTER (WHERE close_reason = 'expired')       AS n_expired,
+                    COUNT(*) FILTER (WHERE close_reason = 'max_loss')      AS n_max_loss,
+                    COUNT(*) FILTER (WHERE close_reason = 'rapid_drop')    AS n_rapid_drop,
+                    COUNT(*) AS total
+                FROM closed
+            """)
+            best = await conn.fetchrow("""
+                SELECT pnl, question
+                FROM micro_positions
+                WHERE status='closed' AND result IS NOT NULL
+                ORDER BY pnl DESC NULLS LAST LIMIT 1
+            """)
+            worst = await conn.fetchrow("""
+                SELECT pnl, question
+                FROM micro_positions
+                WHERE status='closed' AND result IS NOT NULL
+                ORDER BY pnl ASC NULLS LAST LIMIT 1
+            """)
+            theme_roi = await conn.fetch("""
+                SELECT theme,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) AS wins,
+                    COALESCE(SUM(pnl), 0) AS total_pnl,
+                    COALESCE(SUM(stake_amt), 0) AS total_stake,
+                    COALESCE(AVG(EXTRACT(EPOCH FROM (closed_at - opened_at)) / 3600), 0) AS avg_hold_h
+                FROM micro_positions
+                WHERE status='closed' AND result IS NOT NULL AND theme IS NOT NULL
+                GROUP BY theme
+                ORDER BY COUNT(*) DESC
+            """)
+        return {
+            **{k: float(v) if isinstance(v, Decimal) else (int(v) if isinstance(v, int) else v)
+               for k, v in dict(row).items()},
+            "best":  {"pnl": float(best["pnl"]) if best else 0,
+                      "question": best["question"] if best else ""},
+            "worst": {"pnl": float(worst["pnl"]) if worst else 0,
+                      "question": worst["question"] if worst else ""},
+            "theme_roi": _clean_list(theme_roi),
         }
 
     async def get_micro_price_paths(self, limit: int = 10) -> list:

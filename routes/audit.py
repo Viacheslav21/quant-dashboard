@@ -1,9 +1,7 @@
 """Audit route: /api/micro-audit — full text data dump for the micro bot."""
 
 import asyncio
-import re
-from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, Response
 
@@ -17,23 +15,45 @@ router = APIRouter(prefix="/api")
 async def micro_audit():
     """Full micro bot audit — comprehensive data dump."""
     try:
-        stats, open_pos, closed_all, analytics, pnl_data, price_paths = await asyncio.gather(
+        # closed_all is bounded to 200 rows for the section-6 table dump only.
+        # Numeric aggregates (avg_win/loss, best/worst, recent windows, theme ROI,
+        # resolution-rate buckets, hold-time split) come from get_micro_audit_aggregates,
+        # so growing the trade history past 200 doesn't silently corrupt the report.
+        (stats, open_pos, closed_recent, analytics, pnl_data, price_paths, agg,
+         recent_cfg, pnl_by_hour, theme_adj, worst_per_reason, rapid_blocks) = await asyncio.gather(
             deps.db.get_micro_stats(),
             deps.db.get_micro_open_positions(),
-            deps.db.get_micro_closed_positions(limit=9999, offset=0),
+            deps.db.get_micro_closed_positions(limit=200, offset=0),
             deps.db.get_micro_analytics(),
             deps.db.get_micro_cumulative_pnl(),
             deps.db.get_micro_price_paths(limit=15),
+            deps.db.get_micro_audit_aggregates(),
+            deps.db.get_micro_recent_config_changes(days=7),
+            deps.db.get_micro_pnl_by_hour(),
+            deps.db.get_micro_theme_adj_wr(),
+            deps.db.get_micro_worst_per_reason(per_reason=3),
+            deps.db.get_micro_rapid_drop_blocks(),
         )
+        # Kept under the old name in places where ordering doesn't matter; section 6's
+        # table loop uses the same `closed_recent` 200-row slice.
+        closed_all = closed_recent
 
+        # Pull live config values that the audit needs at the top — saves repeated
+        # roundtrips and means worst-case calc reflects whatever the user actually
+        # configured (was hardcoded to 3.0 before).
+        start = 500.0
+        max_loss_cap = 3.0
         try:
             async with deps.db.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT value FROM config_live WHERE service='micro' AND key='BANKROLL'"
-                )
-                start = float(row["value"]) if row else 500.0
+                rows = await conn.fetch("""
+                    SELECT key, value FROM config_live
+                    WHERE service='micro' AND key IN ('BANKROLL', 'MAX_LOSS_PER_POS')
+                """)
+                cfg_top = {r["key"]: r["value"] for r in rows}
+                start = float(cfg_top.get("BANKROLL", start))
+                max_loss_cap = float(cfg_top.get("MAX_LOSS_PER_POS", max_loss_cap))
         except Exception:
-            start = 500.0
+            pass
         total = stats["wins"] + stats["losses"]
         wr = round(stats["wins"] / total * 100, 1) if total > 0 else 0
         # ROI on starting capital — uses realized total_pnl, NOT (bankroll - start).
@@ -45,11 +65,9 @@ async def micro_audit():
         drawdown = compute_max_drawdown(closed_all, start)
         streaks = compute_streaks(closed_all)
 
-        # Win/loss sizes
-        wins_pnl = [float(t.get("pnl") or 0) for t in closed_all if t.get("result") == "WIN"]
-        losses_pnl = [float(t.get("pnl") or 0) for t in closed_all if t.get("result") == "LOSS"]
-        avg_win = round(sum(wins_pnl) / len(wins_pnl), 2) if wins_pnl else 0
-        avg_loss = round(sum(losses_pnl) / len(losses_pnl), 2) if losses_pnl else 0
+        # Win/loss sizes — pulled from SQL aggregates so growth past 200 doesn't lie.
+        avg_win = round(float(agg.get("avg_win") or 0), 2)
+        avg_loss = round(float(agg.get("avg_loss") or 0), 2)
 
         lines = []
         lines.append("=" * 60)
@@ -62,7 +80,13 @@ async def micro_audit():
         lines.append("━" * 40)
         lines.append(f"Bank: ${stats['bankroll']:.2f} (start ${start:.0f}) | ROI: {roi:+.1f}% | P&L: ${stats['total_pnl']:+.2f}")
         lines.append(f"WR: {wr}% ({stats['wins']}W/{stats['losses']}L/{total}) | Peak: ${stats['peak_equity']:.2f}")
-        lines.append(f"Sharpe: {sharpe:.2f} | MaxDD: -{drawdown['max_dd_pct']:.1f}% | Avg lifetime: {analytics['avg_lifetime_hours']:.1f}h")
+        hold_w = float(agg.get("hold_h_win") or 0)
+        hold_l = float(agg.get("hold_h_loss") or 0)
+        lines.append(
+            f"Sharpe: {sharpe:.2f} | MaxDD: -{drawdown['max_dd_pct']:.1f}% | "
+            f"Avg lifetime: {analytics['avg_lifetime_hours']:.1f}h "
+            f"(W: {hold_w:.1f}h, L: {hold_l:.1f}h)"
+        )
         lines.append(f"Avg win: ${avg_win:+.2f} | Avg loss: ${avg_loss:+.2f} | Ratio: {abs(avg_win/avg_loss):.2f}x" if avg_loss != 0 else f"Avg win: ${avg_win:+.2f} | Avg loss: $0")
         lines.append(f"Streaks — Current: {streaks['cur_win']}W/{streaks['cur_loss']}L | Max: {streaks['max_win']}W/{streaks['max_loss']}L")
 
@@ -77,7 +101,7 @@ async def micro_audit():
         # EV check replaces naive win/loss ratio — for a resolution harvester with 95% WR
         # and tiny avg wins vs rare big losses, ratio < 1 is expected AND profitable.
         # The honest question is: EV per trade = WR × avg_win + (1 − WR) × avg_loss.
-        if total > 0 and (wins_pnl or losses_pnl):
+        if total > 0 and (avg_win or avg_loss):
             wr_frac = stats["wins"] / total
             ev_per_trade = wr_frac * avg_win + (1 - wr_frac) * avg_loss
             if ev_per_trade < 0:
@@ -85,15 +109,15 @@ async def micro_audit():
                     f"Negative EV: ${ev_per_trade:+.3f}/trade "
                     f"({wr:.0f}% × ${avg_win:+.2f} + {(1-wr_frac)*100:.0f}% × ${avg_loss:+.2f})"
                 )
-        # 7d performance
+        # 7d / 30d windows — SQL aggregates, not capped by closed_recent's 200-row slice.
         _now = datetime.now(timezone.utc)
-        recent_7d = [t for t in closed_all if t.get("closed_at") and (isinstance(t["closed_at"], datetime) and (_now - t["closed_at"]).days < 7)]
-        pnl_7d = sum(float(t.get("pnl") or 0) for t in recent_7d)
-        wins_7d = sum(1 for t in recent_7d if t.get("result") == "WIN")
-        wr_7d = round(wins_7d / len(recent_7d) * 100, 1) if recent_7d else 0
-        recent_30d = [t for t in closed_all if t.get("closed_at") and (isinstance(t["closed_at"], datetime) and (_now - t["closed_at"]).days < 30)]
-        pnl_30d = sum(float(t.get("pnl") or 0) for t in recent_30d)
-        lines.append(f"7d: {pnl_7d:+.2f}$ ({len(recent_7d)} trades, WR={wr_7d}%) | 30d: {pnl_30d:+.2f}$ ({len(recent_30d)} trades)")
+        pnl_7d    = float(agg.get("pnl_7d") or 0)
+        trades_7d = int(agg.get("trades_7d") or 0)
+        wins_7d   = int(agg.get("wins_7d") or 0)
+        wr_7d     = round(wins_7d / trades_7d * 100, 1) if trades_7d else 0
+        pnl_30d    = float(agg.get("pnl_30d") or 0)
+        trades_30d = int(agg.get("trades_30d") or 0)
+        lines.append(f"7d: {pnl_7d:+.2f}$ ({trades_7d} trades, WR={wr_7d}%) | 30d: {pnl_30d:+.2f}$ ({trades_30d} trades)")
         if pnl_7d < -10:
             alerts.append(f"7d P&L: {pnl_7d:+.2f}$ (heavy losses)")
 
@@ -104,6 +128,21 @@ async def micro_audit():
         else:
             lines.append(f"\nNo alerts.")
 
+        # ━━━ 1b. RECENT CONFIG CHANGES (last 7d) ━━━
+        # Surfaced near the top so the reader can correlate "what we tuned" with
+        # "what happened" before drilling into the metrics.
+        if recent_cfg:
+            lines.append("\n" + "━" * 40)
+            lines.append("1b. RECENT CONFIG CHANGES (last 7d)")
+            lines.append("━" * 40)
+            for c in recent_cfg:
+                ts = c["changed_at"]
+                ts_str = ts.strftime("%m/%d %H:%M") if hasattr(ts, "strftime") else str(ts)[:16]
+                lines.append(
+                    f"  {ts_str} {c['key']}: {c['old_value']} → {c['new_value']} "
+                    f"(v{c['version']})"
+                )
+
         # ━━━ 2. PERFORMANCE ━━━
         lines.append("\n" + "━" * 40)
         lines.append("2. PERFORMANCE")
@@ -113,6 +152,17 @@ async def micro_audit():
         for r in analytics["daily_pnl"]:
             d_wr = round(r['wins'] / r['trades'] * 100, 1) if r['trades'] > 0 else 0
             lines.append(f"  {r['day']}: {r['pnl']:+.2f}$ ({r['trades']} trades, WR={d_wr}%)")
+
+        if pnl_by_hour:
+            lines.append(f"\nP&L by Hour (UTC):")
+            # Compact display: only print hours with trades, flag big losers.
+            for r in pnl_by_hour:
+                hwr = round(int(r['wins']) / int(r['total']) * 100, 0) if int(r['total']) else 0
+                flag = " !" if float(r['total_pnl']) < -2 else ""
+                lines.append(
+                    f"  {int(r['hour']):02d}h: {int(r['total']):>3} trades | "
+                    f"WR={int(hwr):>3}% | pnl={float(r['total_pnl']):+7.2f}${flag}"
+                )
 
         lines.append(f"\nBy Theme:")
         for r in analytics["by_theme"]:
@@ -130,12 +180,10 @@ async def micro_audit():
             c_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
             lines.append(f"  {r['reason']}: {r['wins']}/{r['total']} ({c_wr}%) avg={r['avg_pnl']:+.2f}$")
 
-        # Best/worst
-        if closed_all:
-            best = max(closed_all, key=lambda t: float(t.get("pnl") or 0))
-            worst = min(closed_all, key=lambda t: float(t.get("pnl") or 0))
-            lines.append(f"\nBest:  {float(best['pnl']):+.2f}$ — {best.get('question','')[:60]}")
-            lines.append(f"Worst: {float(worst['pnl']):+.2f}$ — {worst.get('question','')[:60]}")
+        # Best/worst from SQL — must scan the whole closed table, not just last 200.
+        if agg.get("best") and agg["best"].get("question"):
+            lines.append(f"\nBest:  {agg['best']['pnl']:+.2f}$ — {agg['best']['question'][:60]}")
+            lines.append(f"Worst: {agg['worst']['pnl']:+.2f}$ — {agg['worst']['question'][:60]}")
 
         # ━━━ 3. RISK ━━━
         lines.append("\n" + "━" * 40)
@@ -229,17 +277,19 @@ async def micro_audit():
                 # SL distribution section removed — micro no longer uses % SL
                 # (MAX_LOSS + RAPID_DROP are the real exit mechanisms).
 
-                # WR by quality score (join with watchlist which stores quality)
+                # WR by quality score — reads denormalized micro_positions.quality
+                # (copied from watchlist at entry; watchlist row is deleted after entry,
+                # so a JOIN would lose every position newer than that change).
                 quality_wr = await conn.fetch("""
                     SELECT CASE
-                        WHEN w.quality >= 80 THEN 'Q80+'
-                        WHEN w.quality >= 60 THEN 'Q60-80'
-                        WHEN w.quality >= 40 THEN 'Q40-60'
+                        WHEN p.quality >= 80 THEN 'Q80+'
+                        WHEN p.quality >= 60 THEN 'Q60-80'
+                        WHEN p.quality >= 40 THEN 'Q40-60'
                         ELSE 'Q<40' END as bucket,
                         COUNT(*) as total, SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
                         ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl, ROUND(SUM(p.pnl)::numeric, 2) as total_pnl
-                    FROM micro_positions p JOIN micro_watchlist w ON p.market_id = w.market_id AND p.side = w.side
-                    WHERE p.status='closed' AND p.result IS NOT NULL AND w.quality IS NOT NULL
+                    FROM micro_positions p
+                    WHERE p.status='closed' AND p.result IS NOT NULL AND p.quality IS NOT NULL
                     GROUP BY bucket ORDER BY bucket
                 """)
                 if quality_wr:
@@ -248,18 +298,17 @@ async def micro_audit():
                         b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
                         lines.append(f"  {r['bucket']}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
 
-                # Q60-80 breakdown — worst offenders
+                # Q60-80 breakdown — denormalized micro_positions.quality
                 q6080_rows = await conn.fetch("""
                     SELECT p.side, p.result, p.theme,
                         ROUND((p.entry_price * 100)::numeric, 1) as entry_c,
                         ROUND(p.pnl::numeric, 2) as pnl,
                         ROUND(p.stake_amt::numeric, 2) as stake,
-                        p.close_reason, w.quality,
+                        p.close_reason, p.quality,
                         p.question
                     FROM micro_positions p
-                    JOIN micro_watchlist w ON p.market_id = w.market_id AND p.side = w.side
                     WHERE p.status='closed' AND p.result IS NOT NULL
-                      AND w.quality >= 60 AND w.quality < 80
+                      AND p.quality >= 60 AND p.quality < 80
                     ORDER BY p.pnl ASC
                     LIMIT 30
                 """)
@@ -275,17 +324,17 @@ async def micro_audit():
                             f"{r['question'][:55]}"
                         )
 
-                # WR by days_left at entry (join with watchlist)
+                # WR by days_left at entry — denormalized micro_positions.entry_days_left
                 days_wr = await conn.fetch("""
                     SELECT CASE
-                        WHEN w.days_left <= 1 THEN '<=1d'
-                        WHEN w.days_left <= 3 THEN '1-3d'
-                        WHEN w.days_left <= 5 THEN '3-5d'
+                        WHEN p.entry_days_left <= 1 THEN '<=1d'
+                        WHEN p.entry_days_left <= 3 THEN '1-3d'
+                        WHEN p.entry_days_left <= 5 THEN '3-5d'
                         ELSE '5d+' END as bucket,
                         COUNT(*) as total, SUM(CASE WHEN p.result='WIN' THEN 1 ELSE 0 END) as wins,
                         ROUND(AVG(p.pnl)::numeric, 2) as avg_pnl, ROUND(SUM(p.pnl)::numeric, 2) as total_pnl
-                    FROM micro_positions p JOIN micro_watchlist w ON p.market_id = w.market_id AND p.side = w.side
-                    WHERE p.status='closed' AND p.result IS NOT NULL AND w.days_left IS NOT NULL
+                    FROM micro_positions p
+                    WHERE p.status='closed' AND p.result IS NOT NULL AND p.entry_days_left IS NOT NULL
                     GROUP BY bucket ORDER BY bucket
                 """)
                 if days_wr:
@@ -360,6 +409,21 @@ async def micro_audit():
                         wr = int(r['wins']) * 100 // int(r['trades']) if int(r['trades']) > 0 else 0
                         lines.append(f"  {r['theme']}: {r['wins']}/{r['trades']} WR={wr}% pnl={r['total_pnl']:+.2f}${flag}")
 
+                # Bayesian-shrunk WR per theme — same shrinkage (k=20) micro uses
+                # internally for the auto-block decision (block if adj_wr < 40%
+                # after BLOCK_MIN_TRADES). Surfacing this lets us see which themes
+                # are CLOSE to the auto-block threshold before they trip.
+                if theme_adj:
+                    lines.append(f"\nBayesian Theme adj_wr (auto-block threshold: 40% @ ≥5 trades):")
+                    for r in theme_adj:
+                        warn = ""
+                        if r["n"] >= 5 and r["adj_wr"] < 0.50:
+                            warn = " ← near block threshold" if r["adj_wr"] >= 0.40 else " ← BLOCK ZONE"
+                        lines.append(
+                            f"  {r['theme']:<14} n={r['n']:>3} raw={r['raw_wr']*100:>5.1f}% "
+                            f"adj={r['adj_wr']*100:>5.1f}%{warn}"
+                        )
+
                 # Repeat losers
                 repeat_losers = await conn.fetch("""
                     SELECT question, COUNT(*) as entries, SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) as losses,
@@ -374,31 +438,40 @@ async def micro_audit():
 
                 # SL blacklist (markets where bot won't re-enter)
                 sl_blacklist = await conn.fetch("""
-                    SELECT market_id, side, question, ROUND(pnl::numeric, 2) as pnl, closed_at
+                    SELECT market_id, side, question, ROUND(pnl::numeric, 2) as pnl,
+                           close_reason, closed_at
                     FROM micro_positions
-                    WHERE close_reason IN ('stop_loss', 'rapid_drop') AND status='closed'
+                    WHERE close_reason IN ('rapid_drop', 'max_loss') AND status='closed'
                     ORDER BY closed_at DESC LIMIT 10
                 """)
                 if sl_blacklist:
                     lines.append(f"\nRecent SL Blacklist (no re-entry):")
                     for r in sl_blacklist:
-                        lines.append(f"  {r['side']} {r['pnl']:+.2f}$ | {r.get('question', r['market_id'])[:55]}")
+                        lines.append(
+                            f"  {r['side']} {r['pnl']:+.2f}$ [{r['close_reason']}] | "
+                            f"{(r.get('question') or r['market_id'])[:55]}"
+                        )
 
-                # Expired open positions
+                # Expired open positions — read end_date directly (TEXT column from
+                # Gamma, ISO-8601 like "2026-04-15T23:59:00Z"). Way more reliable than
+                # regex-parsing the question text, which misses formats like
+                # "Q4 2026", "by end of November", "April 30 (NY time)".
                 expired_list = []
                 for p in open_pos:
-                    q = p.get("question", "")
-                    _m = re.search(r'(?:on|by|before)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,?\s+(\d{4}))?', q, re.IGNORECASE)
-                    if _m:
-                        _ms, _ds, _ys = _m.group(1), _m.group(2), _m.group(3)
-                        _yr = int(_ys) if _ys else _now.year
-                        try:
-                            _qd = datetime.strptime(f"{_ms} {_ds} {_yr}", "%B %d %Y").replace(tzinfo=timezone.utc)
-                            _da = (_now - _qd).days
-                            if _da > 1:
-                                expired_list.append(f"  ! {q[:60]} ({_da}d ago, ${p.get('stake_amt',0):.2f})")
-                        except ValueError:
-                            pass
+                    end_str = p.get("end_date")
+                    if not end_str:
+                        continue
+                    try:
+                        end = datetime.fromisoformat(str(end_str).replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        continue
+                    days_past = (_now - end).total_seconds() / 86400
+                    if days_past > 1:
+                        q = p.get("question", "")
+                        expired_list.append(
+                            f"  ! {q[:60]} ({days_past:.1f}d past expiry, "
+                            f"${p.get('stake_amt', 0):.2f})"
+                        )
                 if expired_list:
                     lines.append(f"\nExpired Open Positions:")
                     lines.extend(expired_list)
@@ -411,31 +484,47 @@ async def micro_audit():
         lines.append("5. EFFICIENCY & SCALING")
         lines.append("━" * 40)
 
-        # ROI per theme with avg hold time
+        # ROI per theme with avg hold time — SQL aggregates over the full closed
+        # table, not the 200-row dump. Includes total_stake so ROI = pnl/stake.
         lines.append(f"\nROI by Theme:")
-        for r in analytics["by_theme"]:
-            if r['total'] > 0:
-                theme_trades = [t for t in closed_all if t.get("theme") == r["theme"]]
-                theme_stake = sum(float(t.get("stake_amt", 0)) for t in theme_trades)
-                theme_roi = (float(r['total_pnl']) / theme_stake * 100) if theme_stake > 0 else 0
-                avg_hold = sum(
-                    (t["closed_at"] - t["opened_at"]).total_seconds() / 3600
-                    for t in theme_trades if t.get("closed_at") and t.get("opened_at")
-                    and isinstance(t["closed_at"], datetime) and isinstance(t["opened_at"], datetime)
-                ) / max(len(theme_trades), 1)
-                lines.append(f"  {r['theme']}: ROI={theme_roi:+.1f}% | {r['total']} trades | ${theme_stake:.0f} staked | avg hold {avg_hold:.1f}h")
+        for r in agg.get("theme_roi", []):
+            stake = float(r.get("total_stake") or 0)
+            pnl = float(r.get("total_pnl") or 0)
+            roi_pct = (pnl / stake * 100) if stake > 0 else 0
+            avg_hold = float(r.get("avg_hold_h") or 0)
+            lines.append(
+                f"  {r['theme']}: ROI={roi_pct:+.1f}% | {int(r['total'])} trades | "
+                f"${stake:.0f} staked | avg hold {avg_hold:.1f}h"
+            )
 
-        # Resolution rate
-        resolved_count = sum(1 for t in closed_all if t.get("close_reason") == "resolved")
-        expired_count = sum(1 for t in closed_all if t.get("close_reason") == "expired")
-        sl_count = sum(1 for t in closed_all if t.get("close_reason") in ("stop_loss", "rapid_drop", "max_loss"))
-        other_count = total - resolved_count - expired_count - sl_count
+        # Resolution rate — buckets must cover EVERY close_reason emitted by monitor.py
+        # and resolver.py: resolved (WIN), resolved_loss (LOSS at ≤1¢), take_profit
+        # (early exit at TP), max_loss (hard cap), rapid_drop (>7¢ drop), expired (72h+
+        # past end_date force-close). 'stop_loss' is legacy — % SL is disabled in micro.
+        # Counts come from get_micro_audit_aggregates so they're not capped at 200.
+        resolved_win  = int(agg.get("n_resolved")      or 0)
+        resolved_loss = int(agg.get("n_resolved_loss") or 0)
+        take_profit   = int(agg.get("n_take_profit")   or 0)
+        expired_count = int(agg.get("n_expired")       or 0)
+        max_loss_n    = int(agg.get("n_max_loss")      or 0)
+        rapid_drop_n  = int(agg.get("n_rapid_drop")    or 0)
+        sl_count = max_loss_n + rapid_drop_n
+        accounted = resolved_win + resolved_loss + take_profit + expired_count + sl_count
+        # `total` from stats covers full closed set, not just `closed_recent`.
+        other_count = total - accounted
+
+        def _pct(n):
+            return f"{n*100//max(total,1)}%"
+
         lines.append(f"\nResolution Rate:")
-        lines.append(f"  Resolved: {resolved_count}/{total} ({resolved_count*100//max(total,1)}%) — full payout")
-        lines.append(f"  Expired:  {expired_count}/{total} ({expired_count*100//max(total,1)}%) — partial payout")
-        lines.append(f"  SL/Loss:  {sl_count}/{total} ({sl_count*100//max(total,1)}%) — stopped out")
+        lines.append(f"  Resolved WIN:  {resolved_win}/{total} ({_pct(resolved_win)}) — full payout")
+        lines.append(f"  Resolved LOSS: {resolved_loss}/{total} ({_pct(resolved_loss)}) — bid hit ≤1¢")
+        lines.append(f"  Take Profit:   {take_profit}/{total} ({_pct(take_profit)}) — early exit @ TP")
+        lines.append(f"  Expired:       {expired_count}/{total} ({_pct(expired_count)}) — force-closed 72h past expiry")
+        lines.append(f"  Max Loss:      {max_loss_n}/{total} ({_pct(max_loss_n)}) — hard $ cap")
+        lines.append(f"  Rapid Drop:    {rapid_drop_n}/{total} ({_pct(rapid_drop_n)}) — bid dropped >RAPID_DROP_PCT")
         if other_count > 0:
-            lines.append(f"  Other:    {other_count}/{total}")
+            lines.append(f"  Other:         {other_count}/{total} — unrecognized close_reason, investigate")
 
         # Trades per day
         n_days = len(analytics["daily_pnl"])
@@ -459,22 +548,22 @@ async def micro_audit():
             if avg_daily > 0:
                 lines.append(f"  Projected: ${avg_daily*7:.2f}/week | ${avg_daily*30:.2f}/month")
 
-        # Worst case risk on open positions
+        # Worst case risk on open positions — uses live MAX_LOSS_PER_POS from
+        # config_live so it reflects whatever the user actually configured.
         if open_pos:
-            max_loss_cap = 3.0
             worst_case = len(open_pos) * max_loss_cap
             total_stake = sum(p.get('stake_amt', 0) for p in open_pos)
             bankroll_plus_stake = stats['bankroll'] + total_stake
             lines.append(f"\nOpen Risk:")
             lines.append(f"  Positions: {len(open_pos)} | Staked: ${total_stake:.2f}")
-            lines.append(f"  Worst case (all hit max_loss): -${worst_case:.2f}")
+            lines.append(f"  Worst case (all hit ${max_loss_cap:.2f} max_loss): -${worst_case:.2f}")
             lines.append(f"  Capital utilization: {total_stake/bankroll_plus_stake*100:.0f}%")
 
         # MAX_LOSS REST-block diagnostics — counts how often REST verify blocked a max_loss close.
         # Logged from monitor.py via record_price_tick(source='max_loss_blocked'). High counts
         # indicate REST (CLOB book / Gamma midpoint) is lagging vs WS, which can delay cap enforcement.
         try:
-            async with db.pool.acquire() as conn:
+            async with deps.db.pool.acquire() as conn:
                 blocked_rows = await conn.fetch("""
                     SELECT
                         COUNT(*) FILTER (WHERE ts > NOW() - INTERVAL '24 hours') AS d1,
@@ -503,6 +592,35 @@ async def micro_audit():
                                 lines.append(f"    {row['market_id'][:12]} {row['side']}: {int(row['n'])} blocks")
         except Exception as _e:
             pass  # diagnostic is best-effort, never break the report
+
+        # Rapid-drop frequency, alongside MAX_LOSS blocks. Both are exit-path
+        # signals: high counts mean either real volatility or REST lag triggering
+        # spurious exits. We compare them to see if rapid_drop dominates.
+        if rapid_blocks and rapid_blocks.get("total"):
+            lines.append(f"\nRapid Drop closes (frequency check):")
+            lines.append(
+                f"  24h: {int(rapid_blocks['d1'] or 0)} | "
+                f"7d:  {int(rapid_blocks['d7'] or 0)} | "
+                f"All-time: {int(rapid_blocks['total'] or 0)}"
+            )
+
+        # Top 3 worst trades per close_reason — pattern detection. If max_loss
+        # consistently hits crypto markets, we can fix the filter; if rapid_drop
+        # consistently hits sports near game-time, we can pre-exit instead.
+        if worst_per_reason:
+            from collections import defaultdict as _dd
+            by_reason = _dd(list)
+            for r in worst_per_reason:
+                by_reason[r["close_reason"]].append(r)
+            lines.append(f"\nTop 3 Worst Trades per Close Reason:")
+            for reason in sorted(by_reason):
+                lines.append(f"  [{reason}]")
+                for r in by_reason[reason]:
+                    lines.append(
+                        f"    {r['side']} ${r['pnl']:+7.2f} ${r['stake']:>5.2f} "
+                        f"{r['entry_c']:>4.1f}c→{r['exit_c']:>4.1f}c "
+                        f"{(r['theme'] or '?'):<10} {(r['question'] or '')[:55]}"
+                    )
 
         # ━━━ 6. ALL CLOSED POSITIONS ━━━
         lines.append("\n" + "━" * 40)
