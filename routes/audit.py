@@ -314,14 +314,17 @@ async def micro_audit():
                 """)
                 if q6080_rows:
                     lines.append(f"\nQ60-80 positions (worst first):")
-                    lines.append(f"  {'R':<1} {'Q':>3} {'Entry':>5} {'PnL':>7} {'Stake':>6} {'Reason':<12} {'Theme':<10} Question")
+                    lines.append(f"  {'R':<1} {'Q':>3} {'Entry':>6} {'PnL':>8} {'Stake':>7} {'Reason':<12} {'Theme':<10} Question")
                     for r in q6080_rows:
                         flag = 'W' if r['result'] == 'WIN' else 'L'
+                        # quality is REAL — round to int for display so we don't print
+                        # the raw float (e.g. 69.4000015258789).
+                        q = int(round(float(r['quality'] or 0)))
                         lines.append(
-                            f"  {flag} {r['quality']:>3} {r['entry_c']:>4.1f}c "
-                            f"{r['pnl']:>+7.2f}$ ${r['stake']:>5.2f} "
+                            f"  {flag} {q:>3} {float(r['entry_c']):>5.1f}c "
+                            f"{float(r['pnl']):>+7.2f}$ ${float(r['stake']):>6.2f} "
                             f"{r['close_reason']:<12} {(r['theme'] or '?'):<10} "
-                            f"{r['question'][:55]}"
+                            f"{(r['question'] or '')[:55]}"
                         )
 
                 # WR by days_left at entry — denormalized micro_positions.entry_days_left
