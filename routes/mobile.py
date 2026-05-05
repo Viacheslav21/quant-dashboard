@@ -44,42 +44,50 @@ async def mobile_micro_overview():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+def _serialize_position(p: dict, status: str) -> dict:
+    """Uniform shape for open and closed positions. Fields not applicable to a
+    given status are returned as null so clients can rely on a single schema."""
+    entry = p.get("entry_price", 0) or 0
+    current = p.get("current_price") if p.get("current_price") is not None else entry
+    pnl_pct = (current - entry) / entry * 100 if entry > 0 else 0
+    if status == "open":
+        pnl = p.get("unrealized_pnl") or 0
+    else:
+        pnl = p.get("pnl") or 0
+    return {
+        "id": p["id"],
+        "market_id": p.get("market_id"),
+        "question": p.get("question", ""),
+        "theme": p.get("theme", "other"),
+        "side": p["side"],
+        "entry_price": entry,
+        "current_price": current,
+        "stake": p.get("stake_amt", 0),
+        "pnl": round(pnl, 2),
+        "pnl_pct": round(pnl_pct, 1),
+        "status": status,
+        "result": p.get("result") if status == "closed" else None,
+        "close_reason": p.get("close_reason") if status == "closed" else None,
+        "end_date": p.get("end_date") if status == "open" else None,
+        "opened_at": p.get("opened_at"),
+        "closed_at": p.get("closed_at") if status == "closed" else None,
+    }
+
+
 @router.get("/micro/positions")
 async def mobile_micro_positions(status: str = "open", page: int = 1, limit: int = 50):
-    """Micro open or closed positions."""
+    """Micro open or closed positions. Returns a uniform position object
+    regardless of status — fields not relevant for the status are null."""
     try:
         if status == "open":
             positions = await deps.db.get_micro_open_positions()
-            result = []
-            for p in positions:
-                upnl = p.get("unrealized_pnl") or 0
-                entry = p.get("entry_price", 0)
-                current = p.get("current_price") or entry
-                pnl_pct = (current - entry) / entry * 100 if entry > 0 else 0
-                result.append({
-                    "id": p["id"], "market_id": p["market_id"],
-                    "question": p.get("question", ""), "theme": p.get("theme", "other"),
-                    "side": p["side"], "entry_price": entry,
-                    "current_price": current,
-                    "stake": p.get("stake_amt", 0), "upnl": round(upnl, 2),
-                    "pnl_pct": round(pnl_pct, 1),
-                    "end_date": p.get("end_date"),
-                    "opened_at": p.get("opened_at"),
-                })
+            result = [_serialize_position(p, "open") for p in positions]
             return Response(to_json({"positions": result, "total": len(result)}), media_type="application/json")
         else:
             offset = (page - 1) * limit
             positions = await deps.db.get_micro_closed_positions(limit=limit, offset=offset)
             total_count = await deps.db.get_micro_closed_count()
-            result = [{
-                "id": p["id"], "question": p.get("question", ""),
-                "theme": p.get("theme", "other"), "side": p["side"],
-                "entry_price": p.get("entry_price", 0),
-                "current_price": p.get("current_price", 0),
-                "stake": p.get("stake_amt", 0), "pnl": p.get("pnl", 0),
-                "result": p.get("result", ""), "close_reason": p.get("close_reason", ""),
-                "opened_at": p.get("opened_at"), "closed_at": p.get("closed_at"),
-            } for p in positions]
+            result = [_serialize_position(p, "closed") for p in positions]
             return Response(to_json({"positions": result, "total": total_count, "page": page}), media_type="application/json")
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

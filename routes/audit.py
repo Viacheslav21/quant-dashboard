@@ -327,6 +327,97 @@ async def micro_audit():
                             f"{(r['question'] or '')[:55]}"
                         )
 
+                # WR by structural-risk flag — JSONB component, only on positions
+                # entered after Q-breakdown logging shipped (older rows skipped).
+                struct_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN (quality_breakdown->>'structural')::float <= -10 THEN 'flagged'
+                        ELSE 'clean' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions
+                    WHERE status='closed' AND result IS NOT NULL
+                      AND quality_breakdown IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if struct_wr:
+                    lines.append(f"\nWR by Structural Risk Flag (Spread/Series/Tweet patterns):")
+                    for r in struct_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']:<8}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # WR by liquidity component — surfaces whether thin-orderbook trades
+                # actually lose more (the reason the component was added).
+                liq_wr = await conn.fetch("""
+                    SELECT CASE
+                        WHEN (quality_breakdown->>'liquidity')::float >= 5  THEN '+5 deep'
+                        WHEN (quality_breakdown->>'liquidity')::float >= 3  THEN '+3 ok'
+                        WHEN (quality_breakdown->>'liquidity')::float >= 1  THEN '+1 mid'
+                        WHEN (quality_breakdown->>'liquidity')::float >= 0  THEN ' 0 low'
+                        ELSE '-3 thin' END as bucket,
+                        COUNT(*) as total, SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END) as wins,
+                        ROUND(AVG(pnl)::numeric, 2) as avg_pnl, ROUND(SUM(pnl)::numeric, 2) as total_pnl
+                    FROM micro_positions
+                    WHERE status='closed' AND result IS NOT NULL
+                      AND quality_breakdown IS NOT NULL
+                    GROUP BY bucket ORDER BY bucket
+                """)
+                if liq_wr:
+                    lines.append(f"\nWR by Liquidity Component:")
+                    for r in liq_wr:
+                        b_wr = round(r['wins'] / r['total'] * 100, 1) if r['total'] > 0 else 0
+                        lines.append(f"  {r['bucket']:<8}: {r['wins']}/{r['total']} ({b_wr}%) avg={r['avg_pnl']:+.2f}$ total={r['total_pnl']:+.2f}$")
+
+                # Avg Q-component contribution: winners vs losers. Tells which
+                # components actually predict outcome — reset the formula if a
+                # component shows no signal.
+                comp_stats = await conn.fetch("""
+                    SELECT result,
+                        ROUND(AVG((quality_breakdown->>'price')::float)::numeric, 1)      as price,
+                        ROUND(AVG((quality_breakdown->>'spread')::float)::numeric, 1)     as spread,
+                        ROUND(AVG((quality_breakdown->>'days')::float)::numeric, 1)       as days,
+                        ROUND(AVG((quality_breakdown->>'volume')::float)::numeric, 1)     as volume,
+                        ROUND(AVG((quality_breakdown->>'liquidity')::float)::numeric, 1)  as liquidity,
+                        ROUND(AVG((quality_breakdown->>'structural')::float)::numeric, 1) as structural,
+                        ROUND(AVG((quality_breakdown->>'theme_factor')::float)::numeric, 3) as theme_factor,
+                        COUNT(*) as n
+                    FROM micro_positions
+                    WHERE status='closed' AND result IS NOT NULL
+                      AND quality_breakdown IS NOT NULL
+                    GROUP BY result ORDER BY result
+                """)
+                if comp_stats:
+                    lines.append(f"\nQ-Component Averages (W vs L — diagnostic for formula tuning):")
+                    lines.append(f"  {'res':<3} {'n':>4} {'price':>6} {'spread':>7} {'days':>5} {'volume':>7} {'liq':>5} {'struct':>7} {'thFac':>6}")
+                    for r in comp_stats:
+                        lines.append(
+                            f"  {r['result']:<3} {r['n']:>4} {float(r['price']):>6.1f} "
+                            f"{float(r['spread']):>7.1f} {float(r['days']):>5.1f} "
+                            f"{float(r['volume']):>7.1f} {float(r['liquidity']):>+5.1f} "
+                            f"{float(r['structural']):>+7.1f} {float(r['theme_factor']):>6.3f}"
+                        )
+
+                # Stake-uplift suppression count — positions where Q<floor and
+                # the bot used base MAX_STAKE instead of the time-based uplift.
+                # Direct proof that the new gate is doing work.
+                suppressed = await conn.fetchrow("""
+                    SELECT
+                      COUNT(*) FILTER (WHERE entry_days_left <= 1.0
+                                         AND quality < 70 AND quality IS NOT NULL) as candidates,
+                      COUNT(*) FILTER (WHERE entry_days_left <= 1.0
+                                         AND quality < 70 AND quality IS NOT NULL
+                                         AND stake_amt <= 20.01) as suppressed
+                    FROM micro_positions
+                    WHERE status='closed' AND opened_at > NOW() - INTERVAL '14 days'
+                """)
+                if suppressed and suppressed['candidates']:
+                    c = int(suppressed['candidates'])
+                    s = int(suppressed['suppressed'])
+                    lines.append(
+                        f"\nStake Uplift Suppression (last 14d): {s}/{c} Q<70 + ≤1d trades "
+                        f"capped at base MAX_STAKE (gate active = ratio close to 1)"
+                    )
+
                 # WR by days_left at entry — denormalized micro_positions.entry_days_left
                 days_wr = await conn.fetch("""
                     SELECT CASE
