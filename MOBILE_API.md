@@ -64,7 +64,7 @@ so clients can rely on a single schema.
 
 **Query params:**
 | Param | Type | Default | Description |
-|-------|------|---------|-------------|
+|-------|------|---------|-------------|а
 | `status` | string | `open` | `open` or `closed` |
 | `page` | int | 1 | Page number (closed only) |
 | `limit` | int | 50 | Per page (closed only) |

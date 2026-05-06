@@ -76,19 +76,34 @@ def _serialize_position(p: dict, status: str) -> dict:
 
 @router.get("/micro/positions")
 async def mobile_micro_positions(status: str = "open", page: int = 1, limit: int = 50):
-    """Micro open or closed positions. Returns a uniform position object
-    regardless of status — fields not relevant for the status are null."""
+    """Micro open or closed positions. Open and closed share the same shape:
+    uniform position objects (irrelevant fields nulled), `page`/`limit`
+    pagination, and a response envelope of {positions, total, page, limit}.
+    Past the last page `positions` is empty — clients paginate until empty."""
     try:
+        page = max(1, page)
+        limit = max(1, min(limit, 500))
+        offset = (page - 1) * limit
+
         if status == "open":
-            positions = await deps.db.get_micro_open_positions()
+            positions, total_count = await asyncio.gather(
+                deps.db.get_micro_open_positions(limit=limit, offset=offset),
+                deps.db.get_micro_open_count(),
+            )
             result = [_serialize_position(p, "open") for p in positions]
-            return Response(to_json({"positions": result, "total": len(result)}), media_type="application/json")
         else:
-            offset = (page - 1) * limit
-            positions = await deps.db.get_micro_closed_positions(limit=limit, offset=offset)
-            total_count = await deps.db.get_micro_closed_count()
+            positions, total_count = await asyncio.gather(
+                deps.db.get_micro_closed_positions(limit=limit, offset=offset),
+                deps.db.get_micro_closed_count(),
+            )
             result = [_serialize_position(p, "closed") for p in positions]
-            return Response(to_json({"positions": result, "total": total_count, "page": page}), media_type="application/json")
+
+        return Response(to_json({
+            "positions": result,
+            "total": total_count,
+            "page": page,
+            "limit": limit,
+        }), media_type="application/json")
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

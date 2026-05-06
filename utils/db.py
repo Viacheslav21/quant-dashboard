@@ -85,16 +85,28 @@ class Database:
             "peak_equity": round(starting_bankroll + float(peak or 0), 2),
         }
 
-    async def get_micro_open_positions(self) -> list:
+    async def get_micro_open_positions(self, limit: int | None = None, offset: int = 0) -> list:
+        # limit=None → fetch all (legacy callers that need the full open book).
+        # limit set → paginated, ordered the same way as closed for API symmetry.
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
-                       mp.current_price, mp.unrealized_pnl, mp.stake_amt,
-                       mp.end_date, mp.opened_at, mp.slug,
-                       'https://polymarket.com/event/' || COALESCE(mp.slug, mp.market_id) AS url
-                FROM micro_positions mp
-                WHERE mp.status='open' ORDER BY mp.opened_at DESC
-            """)
+            if limit is None:
+                rows = await conn.fetch("""
+                    SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
+                           mp.current_price, mp.unrealized_pnl, mp.stake_amt,
+                           mp.end_date, mp.opened_at, mp.slug,
+                           'https://polymarket.com/event/' || COALESCE(mp.slug, mp.market_id) AS url
+                    FROM micro_positions mp
+                    WHERE mp.status='open' ORDER BY mp.opened_at DESC
+                """)
+            else:
+                rows = await conn.fetch("""
+                    SELECT mp.id, mp.market_id, mp.question, mp.theme, mp.side, mp.entry_price,
+                           mp.current_price, mp.unrealized_pnl, mp.stake_amt,
+                           mp.end_date, mp.opened_at, mp.slug,
+                           'https://polymarket.com/event/' || COALESCE(mp.slug, mp.market_id) AS url
+                    FROM micro_positions mp
+                    WHERE mp.status='open' ORDER BY mp.opened_at DESC LIMIT $1 OFFSET $2
+                """, limit, offset)
             return _clean_list(rows)
 
     async def get_micro_closed_positions(self, limit: int = 100, offset: int = 0) -> list:
@@ -108,6 +120,12 @@ class Database:
                 WHERE mp.status='closed' ORDER BY mp.closed_at DESC LIMIT $1 OFFSET $2
             """, limit, offset)
             return _clean_list(rows)
+
+    async def get_micro_open_count(self) -> int:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT COUNT(*) FROM micro_positions WHERE status='open'"
+            ) or 0
 
     async def get_micro_closed_count(self) -> int:
         async with self.pool.acquire() as conn:
